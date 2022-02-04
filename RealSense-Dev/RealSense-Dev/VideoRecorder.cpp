@@ -7,6 +7,7 @@
 #include <iostream>
 #include <filesystem>
 #include <vector>
+#include <chrono>
 
 #include "Utilities.h"
 
@@ -14,7 +15,7 @@ using namespace rs2;
 using namespace std;
 
 
-VideoRecorder::VideoRecorder (int individualVideoLength,int fullSessionLength, bool enableRGB, bool enableDepth) {
+VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLength, bool enableRGB, bool enableDepth) {
 	this->enableDepth = enableDepth;
 	this->enableRGB = enableRGB;
 
@@ -23,14 +24,87 @@ VideoRecorder::VideoRecorder (int individualVideoLength,int fullSessionLength, b
 	this->determineOutputVideoCount();
 	this->setDirectories();
 	this->createDirectories();
+	//this->createContext();
+	//this->controlSensorSettings();
 }
 
+void VideoRecorder::destroyAll() {
 
-void VideoRecorder::calculateIndividualVidLength(int min) {
-	if (min <= 0 ) {
-		min = 1;
+}
+
+bool VideoRecorder::verifyOptionSupport(rs2::sensor rsSensor, rs2_option optionType) {
+	if (!rsSensor.supports(optionType))
+	{
+		std::cerr << "This option is not supported by this sensor" << std::endl;
+		return false;
 	}
-	individualVideoLength = min * 60;
+
+	return true;
+}
+
+void VideoRecorder::controlSensorSettings() {
+	try {
+
+		/*
+		Turn off emitter laser and enable the high accuracy preset.
+		*/
+
+		if (this->enableDepth) {
+			rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
+
+			if (verifyOptionSupport(depthSensor, RS2_OPTION_VISUAL_PRESET)) {
+				depthSensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_ACCURACY);
+			}
+
+			if (verifyOptionSupport(depthSensor, RS2_OPTION_EMITTER_ENABLED)) {
+				depthSensor.set_option(RS2_OPTION_EMITTER_ENABLED, 0);
+			}
+		}
+
+		/*
+		Turn off the auto-exposure and white balance for RGB sensor.
+		*/
+
+		if (this->enableRGB) {
+			rs2::color_sensor colorSensor = this->rsPLProfile.get_device().first<rs2::color_sensor>();
+
+			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_EXPOSURE)) {
+				colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0);
+			}
+
+			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_WHITE_BALANCE)) {
+				colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_WHITE_BALANCE, 0);
+			}
+		}
+	}
+	catch (const rs2::error& e)
+	{
+		// Some options can only be set while the camera is streaming,
+		// and generally the hardware might fail so it is good practice to catch exceptions from set_option
+		std::cerr << "Failed to set option " << ". (" << e.what() << ")" << std::endl;
+	}
+
+}
+
+void VideoRecorder::startPipeline() {
+	this->rsPLProfile = this->rsPipeline.start(this->rsConfig);
+}
+
+void VideoRecorder::createContext() {
+	if (this->enableDepth) {
+		this->rsConfig.enable_stream(RS2_STREAM_DEPTH, 0, 1280, 720, RS2_FORMAT_Z16, this->Depth_FPS);
+	}
+
+	if (this->enableRGB) {
+		this->rsConfig.enable_stream(RS2_STREAM_COLOR, 0, 1920, 1080, RS2_FORMAT_BGR8, this->RGB_FPS);
+	}
+}
+
+void VideoRecorder::calculateIndividualVidLength(float min) {
+	if (min <= 0.0 ) {
+		min = 1.0;
+	}
+	individualVideoLength = min * 60.0;
 }
 
 
@@ -46,36 +120,37 @@ void VideoRecorder::determineOutputVideoCount() {
 }
 
 void VideoRecorder::calculateSessionLength(float minutes) {
-	if (minutes < 1) {
-		minutes = 1;
+	if (minutes < 1.0) {
+		minutes = 1.0;
 	}
-	fullSessionLength = int(minutes * 60);
+	fullSessionLength = minutes * 60.0;
 }
 
-bool VideoRecorder::createDirectories() {
+void VideoRecorder::createDirectories() {
 	vector<string> directories = { this->parentDir,
 								   this->baseDir,
 								   this->colorDir,
 								   this->depthDir};
 
-	int success = 1;
+	int failure = 0;
 
 	for(string dir : directories)
 	{
-		if (success == 0) {
-			return false;
-		}
 
 		if (isPathExist(dir)) {
+			std::cout << dir + "path already exists." << std::endl;
 			continue;
 		}
 
 		else {
-			success = _mkdir(dir.c_str());
+			failure = _mkdir(dir.c_str());
+
+			if (failure == 1) {
+				std::cerr << "Failed to create directory for:" + dir << endl;
+				return;
+			}
 		}
 	}
-
-	return true;
 }
 
 void VideoRecorder::setDirectories() {
@@ -89,7 +164,46 @@ void VideoRecorder::setDirectories() {
 
 	cout << time_buffer << endl;
 
-	this->baseDir = this->parentDir +  "/output_" + string(time_buffer);
-	this->colorDir = this->baseDir + "/color";
-	this->depthDir = this->baseDir + "/depth";
+	this->baseDir = this->parentDir +  "output_" + string(time_buffer) + "/";
+	this->colorDir = this->baseDir + "color/";
+	this->depthDir = this->baseDir + "depth/";
+}
+
+
+void VideoRecorder::recordVideo() {
+	try {
+		//rs2::align alignTo(RS2_STREAM_COLOR);
+
+		int recordedFrameCount = 0;
+
+		// Calculate maximum amount of frames
+		int max_frames = this->individualVideoLength * static_cast<float>(this->videoCount) * static_cast<float>(max(this->RGB_FPS, this->Depth_FPS));
+		int indVidFrames = this->individualVideoLength * static_cast<float>(max(this->RGB_FPS, this->Depth_FPS));
+
+		cout << this->individualVideoLength << "     " << this->fullSessionLength << endl;
+		std::chrono::high_resolution_clock Clock;
+
+		for (int i = 1; i < this->videoCount + 1; i++) {
+			std::cout << "Recording video " << i << "of" << this->videoCount << std::endl;
+ 			
+			int frameCount = 0;
+
+			std::chrono::duration<float> timeElapsed;
+			auto startTime = Clock.now();
+			
+			timeElapsed = Clock.now() - startTime;
+		
+			while (timeElapsed.count() < this->individualVideoLength) {
+				
+				timeElapsed = Clock.now() - startTime;
+				cout << timeElapsed.count() << endl;
+				//timeElapsed = std::chrono::duration<float, std::milli> ms_double;
+			}
+		}
+
+	}
+	catch (const rs2::error& e) {
+	
+	}
+
 }
