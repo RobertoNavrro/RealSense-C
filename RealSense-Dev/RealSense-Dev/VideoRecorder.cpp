@@ -2,7 +2,7 @@
 
 #include "librealsense2/rs.hpp"
 #include <assert.h>
-#include<direct.h>
+#include <direct.h>
 
 #include <iostream>
 #include <filesystem>
@@ -162,8 +162,6 @@ void VideoRecorder::setDirectories() {
 
 	strftime(time_buffer, 80, "%Y_%m_%d-%H_%M", timeinfo);
 
-	cout << time_buffer << endl;
-
 	this->baseDir = this->parentDir +  "output_" + string(time_buffer) + "/";
 	this->colorDir = this->baseDir + "color/";
 	this->depthDir = this->baseDir + "depth/";
@@ -172,7 +170,7 @@ void VideoRecorder::setDirectories() {
 
 void VideoRecorder::recordVideo() {
 	try {
-		//rs2::align alignTo(RS2_STREAM_COLOR);
+		rs2::align alignTo(RS2_STREAM_COLOR);
 
 		int recordedFrameCount = 0;
 
@@ -183,21 +181,43 @@ void VideoRecorder::recordVideo() {
 		cout << this->individualVideoLength << "     " << this->fullSessionLength << endl;
 		std::chrono::high_resolution_clock Clock;
 
+		int frameAlignment = this->RGB_FPS / this->Depth_FPS;
+
 		for (int i = 1; i < this->videoCount + 1; i++) {
 			std::cout << "Recording video " << i << "of" << this->videoCount << std::endl;
  			
 			int frameCount = 0;
+			bool framesArrived = false;
+
+			rs2::frameset frameSet;
 
 			std::chrono::duration<float> timeElapsed;
 			auto startTime = Clock.now();
 			
 			timeElapsed = Clock.now() - startTime;
-		
+
+
 			while (timeElapsed.count() < this->individualVideoLength) {
+				framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 100);
+				if (framesArrived) {
+					if (frameCount % frameAlignment == 0){
+						if (this->enableDepth && this->enableRGB) {
+							frameSet = alignTo.process(frameSet);
+							auto colorFrame = frameSet.get_color_frame();
+							auto depthFrame = frameSet.get_depth_frame();
+						}
+					}
+					else {
+						auto colorFrame = frameSet.get_color_frame();
+					}
 				
+				auto colorMat = frame_to_mat
+
+				}
+				
+
+
 				timeElapsed = Clock.now() - startTime;
-				cout << timeElapsed.count() << endl;
-				//timeElapsed = std::chrono::duration<float, std::milli> ms_double;
 			}
 		}
 
