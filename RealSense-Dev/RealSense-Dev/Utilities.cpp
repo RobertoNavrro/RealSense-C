@@ -9,8 +9,6 @@ using namespace cv;
 using namespace rs2;
 using namespace std;
 
-
-
 // Convert rs2::frame to cv::Mat
 cv::Mat frame_to_mat(const rs2::frame& f)
 {
@@ -74,7 +72,7 @@ void writeFrames(rs2::frame_queue queue,
 
     int frameCount = 0;
 
-    int maxVideoFrames = individualVideoLength * 15; //individualVideoLength* fps;
+    int maxVideoFrames = individualVideoLength * fps;
 
     try {
         while (true) {
@@ -93,26 +91,24 @@ void writeFrames(rs2::frame_queue queue,
                     //writer = cv::VideoWriter(filename, fourcc, static_cast< float >(fps), resolution);
                     std::cout << "Starting to write for" << videoID << ".Type: " << imageType << endl;
                 }
+                frameCount = 0;
             }
             //writer.write(currentFrame);
         }
-        currentFrame.release();
-        frame.~frame();
     }
     catch (cv::Exception& e) {
         std::cout << "Exception caught while writing:" << filename << "Exception msg:" << e.what() << std::endl;
         //writer.release();
         currentFrame.release();
-        frame.~frame();
         return;
     }
     catch (const rs2::error& e) {
         std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
         //writer.release()
         currentFrame.release();
-        frame.~frame();
     }
     //writer.release();
+    currentFrame.release();
     return;
 }
 

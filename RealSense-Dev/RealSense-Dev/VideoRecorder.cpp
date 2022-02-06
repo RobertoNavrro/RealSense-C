@@ -102,7 +102,7 @@ void VideoRecorder::createContext() { //Todo: Change this to actual video stream
 		this->rsConfig.enable_stream(RS2_STREAM_COLOR, 0, 1920, 1080, RS2_FORMAT_BGR8, this->RGB_FPS);
 	}*/
 
-	this->rsConfig.enable_device_from_file("D:/Downloads/stairs.bag");
+	this->rsConfig.enable_device_from_file("D:/Downloads/structured.bag");
 }
 
 void VideoRecorder::calculateIndividualVidLength(float min) {
@@ -275,10 +275,9 @@ void VideoRecorder::recordVideo() {
 
 			timeElapsed = Clock.now() - startTime;
 
-			framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 100);
+			framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 1000);
 
 			if (framesArrived) {
-
 				if (frameCount % frameAlignment == 0) {
 					frameSet = alignTo.process(frameSet);
 					colorFrame = frameSet.get_color_frame();
@@ -301,13 +300,16 @@ void VideoRecorder::recordVideo() {
 			frameCount += 1;
 
 			// Debug printing
-			if (frameCount % 150 == 0){
+			if (frameCount % 45 == 0){
 				std::cout << frameCount << " at " << timeElapsed.count() << " seconds." << endl;
 			}
 		}
 
 	
 		recordedFrameCount += frameCount;
+
+		colorSavingThread.join();
+		depthSavingThread.join();
 
 		colorFrame.~frame();
 		depthFrame.~frame();
@@ -332,9 +334,6 @@ void VideoRecorder::recordVideo() {
 		this->stopPipeline();
 		return;
 	}
-
-	colorSavingThread.join();
-	depthSavingThread.join();
 
 	return;
 }
