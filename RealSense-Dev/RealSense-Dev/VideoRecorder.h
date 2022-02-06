@@ -45,6 +45,8 @@ class VideoRecorder
 	public:
 		VideoRecorder(float individualVideoLength, float fullSessionLength, bool enableRGB, bool enableDepth);
 		void recordVideo();
+		void stopPipeline();
+		void verifySetUp();
 };
 
 #endif // !
