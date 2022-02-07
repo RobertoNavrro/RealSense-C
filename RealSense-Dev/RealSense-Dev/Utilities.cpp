@@ -3,6 +3,7 @@
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include <opencv2/opencv.hpp>   // Include OpenCV API
+#include "opencv2/videoio.hpp"
 #include <exception>
 
 using namespace cv;
@@ -65,7 +66,7 @@ void writeFrames(rs2::frame_queue queue,
     cv::Size resolution = cv::Size(1920, 1080);
 
     //Define writer
-    //cv::VideoWriter writer(filename, fourcc, static_cast< float >(fps), resolution);
+    cv::VideoWriter writer (filename, fourcc, static_cast<float>(fps), resolution, true);
 
     cv::Mat currentFrame;
     rs2::frame frame;
