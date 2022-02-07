@@ -18,11 +18,10 @@ class VideoRecorder
 		string depthDir;
 	
 		rs2::pipeline rsPipeline;
-		rs2::config rsConfig;
 		rs2::pipeline_profile rsPLProfile;
 
-		const int RGB_FPS = 30;
-		const int Depth_FPS = 15;
+		const float RGB_FPS = 30;
+		const float Depth_FPS = 30;
 		float individualVideoLength;
 		float fullSessionLength;
 		int videoCount;
@@ -37,10 +36,9 @@ class VideoRecorder
 		void calculateSessionLength(float minutes);
 		void createDirectories();
 		void setDirectories();
-		void createContext();
-		void startPipeline();
+		rs2::config createContext();
+		void startPipeline(rs2::config);
 		void controlSensorSettings();
-		void destroyAll();
 
 	public:
 		VideoRecorder(float individualVideoLength, float fullSessionLength, bool enableRGB, bool enableDepth);

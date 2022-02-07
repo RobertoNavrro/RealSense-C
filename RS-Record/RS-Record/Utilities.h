@@ -10,6 +10,6 @@ bool isPathExist(const std::string& filename);
 cv::Mat frame_to_mat(const rs2::frame& f);
 void writeFrames(rs2::frame_queue queue, std::string imageType, 
 				 std::string directory, std::string baseDirectory, 
-				 int videoCount, float individualVideoLength, int fps);
+				 int videoCount, float individualVideoLength, float fps);
 
 #endif // !

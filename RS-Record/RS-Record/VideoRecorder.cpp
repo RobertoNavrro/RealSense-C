@@ -11,6 +11,7 @@
 
 #include "Utilities.h"
 #include <concurrent_queue.h>
+#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
 
 using namespace rs2;
 using namespace std;
@@ -25,9 +26,9 @@ VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLengt
 	this->determineOutputVideoCount();
 	this->setDirectories();
 	this->createDirectories();
-	this->createContext();
-	//this->controlSensorSettings();
-	this->startPipeline();
+	rs2::config rsConfig = this->createContext();
+	this->startPipeline(rsConfig);
+	this->controlSensorSettings();
 }
 
 void VideoRecorder::stopPipeline() {
@@ -55,9 +56,9 @@ void VideoRecorder::controlSensorSettings() {
 		if (this->enableDepth) {
 			rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
 
-			if (verifyOptionSupport(depthSensor, RS2_OPTION_VISUAL_PRESET)) {
-				depthSensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_ACCURACY);
-			}
+			//if (verifyOptionSupport(depthSensor, RS2_OPTION_VISUAL_PRESET)) {
+			//	depthSensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_ACCURACY);
+			//}
 
 			if (verifyOptionSupport(depthSensor, RS2_OPTION_EMITTER_ENABLED)) {
 				depthSensor.set_option(RS2_OPTION_EMITTER_ENABLED, 0);
@@ -89,20 +90,22 @@ void VideoRecorder::controlSensorSettings() {
 
 }
 
-void VideoRecorder::startPipeline() {
-	this->rsPLProfile = this->rsPipeline.start(this->rsConfig);
+void VideoRecorder::startPipeline(rs2::config config) {
+	this->rsPLProfile = this->rsPipeline.start(config);
 }
 
-void VideoRecorder::createContext() { //Todo: Change this to actual video streams!
-	/*if (this->enableDepth) {
-		this->rsConfig.enable_stream(RS2_STREAM_DEPTH, 0, 1280, 720, RS2_FORMAT_Z16, this->Depth_FPS);
+rs2::config VideoRecorder::createContext() { //Todo: Change this to actual video streams!
+
+	rs2:config rsConfig;
+	if (this->enableDepth) {
+		rsConfig.enable_stream(RS2_STREAM_DEPTH, -1, 1280, 720, RS2_FORMAT_Z16, this->Depth_FPS);
 	}
 
 	if (this->enableRGB) {
-		this->rsConfig.enable_stream(RS2_STREAM_COLOR, 0, 1920, 1080, RS2_FORMAT_BGR8, this->RGB_FPS);
-	}*/
+		rsConfig.enable_stream(RS2_STREAM_COLOR,-1, 1920, 1080, RS2_FORMAT_BGR8, this->RGB_FPS);
+	}
 
-	this->rsConfig.enable_device_from_file("D:/Downloads/stairs.bag");
+	return rsConfig;
 }
 
 void VideoRecorder::calculateIndividualVidLength(float min) {
@@ -190,25 +193,45 @@ void VideoRecorder::verifySetUp() {
 
 	rs2::frame colorFrame;
 	rs2::frame depthFrame;
+	std::chrono::high_resolution_clock Clock;
 
-	bool framesArrived;
+	bool framesArrived = true;
+	std::chrono::duration<float> timeElapsed;
+	auto startTime = Clock.now();
+	timeElapsed = Clock.now() - startTime;
+
+	int frame_count = 0;
 
 	while (true) {
 
-		framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 1000);
+		timeElapsed = Clock.now() - startTime;
+
+		if (timeElapsed.count() >= 5){
+			int avgfps = frame_count / timeElapsed.count();
+			cout << "Average FPS:" << avgfps << endl;
+			startTime = Clock.now();
+			frame_count = 0;
+		}
+
+		frameSet = this->rsPipeline.wait_for_frames(1000);
 
 		if (framesArrived) {
 
 
 			frameSet = alignTo.process(frameSet);
 			colorFrame = frameSet.get_color_frame();
-			depthFrame = frameSet.get_depth_frame().apply_filter(colorMap);
+			depthFrame = frameSet.get_depth_frame();
+
 
 			colorImage = frame_to_mat(colorFrame);
 			depthImage = frame_to_mat(depthFrame);
-			
-			cv::imshow(depthWindowName, depthImage);
-			cv::imshow(colorWindowName, colorImage);
+
+			cv::convertScaleAbs(depthImage, depthImage, 0.03);
+			cv::applyColorMap(depthImage, depthImage, cv::ColormapTypes::COLORMAP_JET);
+			if (colorImage.size().width != 0 && colorImage.size().height != 0 && depthImage.size().width != 0 && depthImage.size().height != 0) {
+				cv::imshow(colorWindowName, colorImage);
+				cv::imshow(depthWindowName, depthImage);
+			}
 			auto key = (char)27;
 
 			if (cv::waitKey(1) == key) {
@@ -216,6 +239,8 @@ void VideoRecorder::verifySetUp() {
 				break;
 			}
 		}
+
+		frame_count += 1;
 	}
 	
 	depthImage.release();
@@ -228,13 +253,15 @@ void VideoRecorder::verifySetUp() {
 
 void VideoRecorder::recordVideo() {
 	
-	int recordingFps = max(this->RGB_FPS, this->Depth_FPS);
+	//int recordingFps = max(this->RGB_FPS, this->Depth_FPS);
 
 	rs2::frame_queue depthFramesQueue(10);
 	rs2::frame_queue colorFramesQueue(10);
 
-	std::thread depthSavingThread(writeFrames, depthFramesQueue, "depth", this->depthDir, this->baseDir, this->videoCount, this->individualVideoLength, recordingFps);
-	std::thread colorSavingThread(writeFrames, colorFramesQueue, "color", this->colorDir, this->baseDir, this->videoCount, this->individualVideoLength, recordingFps);
+	std::this_thread::sleep_for(std::chrono::seconds(10));
+
+	std::thread depthSavingThread(writeFrames, depthFramesQueue, "depth", this->depthDir, this->baseDir, this->videoCount, this->individualVideoLength, 6);
+	std::thread colorSavingThread(writeFrames, colorFramesQueue, "color", this->colorDir, this->baseDir, this->videoCount, this->individualVideoLength, this->RGB_FPS);
 
 	try {
 		// Depth colorization and alignment.
@@ -243,16 +270,16 @@ void VideoRecorder::recordVideo() {
 
 		// Information tracking
 		int recordedFrameCount = 0;
-		int maxFrames =  this->fullSessionLength * max(this->RGB_FPS, this->Depth_FPS);
+		int maxFrames =  static_cast<int>(this->fullSessionLength * max(this->RGB_FPS, this->Depth_FPS));
 
 		// Calculate maximum amount of frames
-		int max_frames = this->individualVideoLength * static_cast<float>(this->videoCount) * static_cast<float>(max(this->RGB_FPS, this->Depth_FPS));
+		int max_frames = static_cast<int>(this->individualVideoLength * static_cast<float>(this->videoCount) * max(this->RGB_FPS, this->Depth_FPS));
 		
 		// Create clock
 		std::chrono::high_resolution_clock Clock;
 
 		// Check for when frames must be aligned.
-		int frameAlignment = this->RGB_FPS / this->Depth_FPS;
+		int frameAlignment = static_cast<int>(this->RGB_FPS / this->Depth_FPS);
 
 		// Object for frames
 		rs2::frameset frameSet;
@@ -260,7 +287,6 @@ void VideoRecorder::recordVideo() {
 		rs2::frame colorFrame;
 		rs2::frame depthFrame;
 
-		std::this_thread::sleep_for(std::chrono::seconds(2));
 		int frameCount = 0;
 		bool framesArrived = false;
 			
@@ -269,27 +295,26 @@ void VideoRecorder::recordVideo() {
 		std::chrono::duration<float> timeElapsed;
 		auto startTime = Clock.now();
 		timeElapsed = Clock.now() - startTime;
-
 		// Record a video
 		while (timeElapsed.count() < this->fullSessionLength) {
 
 			timeElapsed = Clock.now() - startTime;
 
-			framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 1000);
+			framesArrived = this->rsPipeline.try_wait_for_frames(&frameSet, 300);
 
 			if (framesArrived) {
-				//if (frameCount % frameAlignment == 0) {
-				frameSet = alignTo.process(frameSet);
-				colorFrame = frameSet.get_color_frame();
-				depthFrame = frameSet.get_depth_frame(); // .apply_filter(colorMap);
+				if (frameCount % 5 == 0) {
+					frameSet = alignTo.process(frameSet);
+					colorFrame = frameSet.get_color_frame();
+					depthFrame = frameSet.get_depth_frame(); // .apply_filter(colorMap);
 
-				//}
-				//else {
-				//	colorFrame = frameSet.get_color_frame();
-				//}
-
-				depthFramesQueue.enqueue(depthFrame);
-				colorFramesQueue.enqueue(colorFrame);
+					depthFramesQueue.enqueue(depthFrame);
+					colorFramesQueue.enqueue(colorFrame);
+				}
+				else {
+					colorFrame = frameSet.get_color_frame();
+					colorFramesQueue.enqueue(colorFrame);
+				}
 			}
 			else 
 			{
@@ -300,7 +325,7 @@ void VideoRecorder::recordVideo() {
 			frameCount += 1;
 
 			// Debug printing
-			if (frameCount % 1800 == 0) {
+			if (frameCount % 150 == 0) {
 				std::cout << frameCount << " at " << timeElapsed.count() << " seconds." << endl;
 			}
 		}

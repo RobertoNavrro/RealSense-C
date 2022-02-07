@@ -4,8 +4,8 @@
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include <opencv2/opencv.hpp>   // Include OpenCV API
 #include "opencv2/videoio.hpp"
-#include <opencv-3.4/modules/videoio/include/opencv2/videoio/videoio_c.h>
 #include <exception>
+#include <opencv-3.4/modules/videoio/include/opencv2/videoio/videoio_c.h>
 
 using namespace cv;
 using namespace rs2;
@@ -53,7 +53,7 @@ void writeFrames(rs2::frame_queue queue,
                  std::string baseDirectory,
                  int videoCount,
                  float individualVideoLength,
-                 int fps) {
+                 float fps) {
 
     cout << "Writing in directory:" << directory << "for type:" << imageType << endl;
     int videoID = 1;
@@ -67,42 +67,61 @@ void writeFrames(rs2::frame_queue queue,
     cv::Size resolution = cv::Size(1920, 1080);
 
     //Define writer
-    cv::VideoWriter writer (filename, fourcc, static_cast<float>(15), resolution, true);
+    cv::VideoWriter writer (filename, fourcc, static_cast<float>(fps), resolution, true);
 
     cv::Mat currentFrame;
     rs2::frame frame;
 
     int frameCount = 0;
 
-    int maxVideoFrames = individualVideoLength * fps;
+    int maxVideoFrames = static_cast<int>(individualVideoLength * fps);
 
     cout << "Maximum frames per video:" << maxVideoFrames << endl;
 
+    // Create clock
+    std::chrono::high_resolution_clock Clock;
+    // Keep track of time in video.
+    std::chrono::duration<float> timeElapsed;
+    auto startTime = Clock.now();
+    timeElapsed = Clock.now() - startTime;
+
     try {
+
+
         while (true) {
-            frame = queue.wait_for_frame(10000);
-            currentFrame = frame_to_mat(frame);
-            frameCount += 1;
-            if (frameCount >= maxVideoFrames) {
-                std::cout << "Done recording video" << videoID << ".Type: " << imageType <<endl;
+
+            timeElapsed = Clock.now() - startTime;
+
+            if (individualVideoLength <= timeElapsed.count()) {
+                std::cout << "Done recording video" << videoID << ".Type: " << imageType << endl;
+                int avg_fps = frameCount / timeElapsed.count();
+                std::cout << "Captured frames:" << frameCount << "Average FPS:" << avg_fps << endl;
+
                 videoID += 1;
                 writer.release();
+
                 if (videoID > videoCount) {
                     break;
                 }
+
                 else {
                     filename = directory + to_string(videoID) + ".mp4";
-                    writer = cv::VideoWriter(filename, fourcc, static_cast< float >(fps), resolution);
+                    writer = cv::VideoWriter(filename, fourcc, static_cast<float>(fps), resolution);
                     std::cout << "Starting to write for" << videoID << ".Type: " << imageType << endl;
                 }
+                startTime = Clock.now();
                 frameCount = 0;
             }
 
-            if (imageType == "depth"){
-                cout << queue.size() << endl;
+            frame = queue.wait_for_frame(30000); // we wait at most 1 minute otherwise we know the frames have ended and we can stop.
+            currentFrame = frame_to_mat(frame);
+            frameCount += 1;
+
+            if (imageType == "depth") {
                 cv::convertScaleAbs(currentFrame, currentFrame, 0.03);
-                cv::applyColorMap(currentFrame, currentFrame, COLORMAP_VIRIDIS);
+                cv::applyColorMap(currentFrame, currentFrame, COLORMAP_JET);
             }
+            //cout << imageType << " queue size:"  << queue.size() << endl;
 
             writer.write(currentFrame);
         }
@@ -114,6 +133,7 @@ void writeFrames(rs2::frame_queue queue,
     }
     catch (const rs2::error& e) {
         std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
+        std::cerr << "Ëxiting save thread for " << imageType << endl;
         writer.release();
     }
     writer.release();
