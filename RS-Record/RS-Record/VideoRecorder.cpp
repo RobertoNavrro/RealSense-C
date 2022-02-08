@@ -57,7 +57,7 @@ void VideoRecorder::controlSensorSettings() {
 			rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
 
 			if (verifyOptionSupport(depthSensor, RS2_OPTION_VISUAL_PRESET)) {
-				depthSensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_DENSITY);
+				depthSensor.set_option(RS2_OPTION_VISUAL_PRESET, RS2_RS400_VISUAL_PRESET_HIGH_ACCURACY);
 			}
 
 			if (verifyOptionSupport(depthSensor, RS2_OPTION_EMITTER_ENABLED)) {
