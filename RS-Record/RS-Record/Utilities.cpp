@@ -48,12 +48,12 @@ cv::Mat frame_to_mat(const rs2::frame& f)
 
 
 void writeFrames(rs2::frame_queue queue,
-                 std::string imageType,
-                 std::string directory,
-                 std::string baseDirectory,
-                 int videoCount,
-                 float individualVideoLength,
-                 float fps) {
+    std::string imageType,
+    std::string directory,
+    std::string baseDirectory,
+    int videoCount,
+    float individualVideoLength,
+    float fps) {
 
     cout << "Writing in directory:" << directory << "for type:" << imageType << endl;
     int videoID = 1;
@@ -62,12 +62,12 @@ void writeFrames(rs2::frame_queue queue,
 
     //Define file name
     string filename = directory + to_string(videoID) + ".mp4";
-    
+
     //Define Size
     cv::Size resolution = cv::Size(1920, 1080);
 
     //Define writer
-    cv::VideoWriter writer (filename, fourcc, static_cast<float>(fps), resolution, true);
+    cv::VideoWriter writer(filename, fourcc, static_cast<double>(fps), resolution, true);
 
     cv::Mat currentFrame;
     rs2::frame frame;
@@ -85,35 +85,31 @@ void writeFrames(rs2::frame_queue queue,
     auto startTime = Clock.now();
     timeElapsed = Clock.now() - startTime;
 
-    try {
 
+    while (true) {
 
-        while (true) {
+        timeElapsed = Clock.now() - startTime;
+        
+        if (queue.capacity() == queue.size()) {
+            cout << "Queue for " << imageType << "is full. Frame dropping might occur." << endl;
+        }
 
-            timeElapsed = Clock.now() - startTime;
+        if (individualVideoLength <= timeElapsed.count()) {
 
-            if (individualVideoLength <= timeElapsed.count()) {
-                std::cout << "Done recording video" << videoID << ".Type: " << imageType << endl;
-                int avg_fps = frameCount / timeElapsed.count();
-                std::cout << "Captured frames:" << frameCount << "Average FPS:" << avg_fps << endl;
+            videoID++;
+            writer.release();
 
-                videoID += 1;
-                writer.release();
+            filename = directory + to_string(videoID) + ".mp4";
 
-                if (videoID > videoCount) {
-                    break;
-                }
+            writer = cv::VideoWriter(filename, fourcc, static_cast<double>(fps), resolution);
 
-                else {
-                    filename = directory + to_string(videoID) + ".mp4";
-                    writer = cv::VideoWriter(filename, fourcc, static_cast<float>(fps), resolution);
-                    std::cout << "Starting to write for" << videoID << ".Type: " << imageType << endl;
-                }
-                startTime = Clock.now();
-                frameCount = 0;
-            }
+            std::cout << "Starting to write video " << videoID << " of type: " << imageType <<  "." << endl;
 
-            frame = queue.wait_for_frame(30000); // we wait at most 1 minute otherwise we know the frames have ended and we can stop.
+            startTime = Clock.now();
+        }
+
+        try {
+            frame = queue.wait_for_frame(15000); // we wait at most 15 seconds otherwise we know the frames have ended and we can stop.
             currentFrame = frame_to_mat(frame);
             frameCount += 1;
 
@@ -121,22 +117,21 @@ void writeFrames(rs2::frame_queue queue,
                 cv::convertScaleAbs(currentFrame, currentFrame, 0.03);
                 cv::applyColorMap(currentFrame, currentFrame, COLORMAP_JET);
             }
-            //cout << imageType << " queue size:"  << queue.size() << endl;
 
             writer.write(currentFrame);
         }
-    }
-    catch (cv::Exception& e) {
-        std::cout << "Exception caught while writing:" << filename << "Exception msg:" << e.what() << std::endl;
-        writer.release();
-        return;
-    }
-    catch (const rs2::error& e) {
-        std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
-        std::cerr << "Ëxiting save thread for " << imageType << endl;
-        writer.release();
+        catch (const cv::Exception& e) {
+            std::cout << "Exception caught while writing:" << filename << "Exception msg:" << e.what() << std::endl;
+            break;
+        }
+        catch (const rs2::error& e) {
+            std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
+            std::cerr << "Exiting save thread for " << imageType << endl;
+            break;
+        }
     }
     writer.release();
+    writer.~VideoWriter();
     return;
 }
 
