@@ -3,6 +3,7 @@
 #include <librealsense2/rs.hpp>
 #include <concurrent_queue.h>
 
+
 #ifndef UTILITIES_H
 #define UTILITIES_H
 

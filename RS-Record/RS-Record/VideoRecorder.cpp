@@ -16,6 +16,7 @@
 using namespace rs2;
 using namespace std;
 
+// TODO: Check device temperature.
 
 VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLength, bool enableRGB, bool enableDepth) {
 	this->enableDepth = enableDepth;
@@ -26,9 +27,10 @@ VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLengt
 	this->determineOutputVideoCount();
 	this->setDirectories();
 	this->createDirectories();
-	rs2::config rsConfig = this->createContext();
+	rs2::config rsConfig;
+	rsConfig = this->createContext();
 	this->startPipeline(rsConfig);
-	this->controlSensorSettings();
+	//this->controlSensorSettings();
 }
 
 void VideoRecorder::stopPipeline() {
@@ -100,14 +102,14 @@ void VideoRecorder::startPipeline(rs2::config config) {
 rs2::config VideoRecorder::createContext() { //Todo: Change this to actual video streams!
 
 	rs2:config rsConfig;
-	if (this->enableDepth) {
+	/*if (this->enableDepth) {
 		rsConfig.enable_stream(RS2_STREAM_DEPTH, 0, 848, 480, RS2_FORMAT_Z16, this->Depth_FPS);
 	}
 
 	if (this->enableRGB) {
 		rsConfig.enable_stream(RS2_STREAM_COLOR, 0, 1920, 1080, RS2_FORMAT_BGR8, this->RGB_FPS);
-	}
-
+	}*/
+	rsConfig.enable_device_from_file("D:/Downloads/structured.bag");
 	return rsConfig;
 }
 
@@ -205,35 +207,60 @@ void VideoRecorder::verifySetUp() {
 
 	int frame_count = 0;
 
+
+	// Create filters for depth frames 
+	rs2::decimation_filter dec_filter;  // Decimation - reduces depth frame density
+	rs2::threshold_filter thr_filter;   // Threshold  - removes values outside recommended range
+	rs2::spatial_filter spat_filter;    // Spatial    - edge-preserving spatial smoothing
+	rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
+
+	float min_depth = 0.20f; // Given that we are recording an incubator.
+	float max_depth = 7.0f;  // Given that we are recording an incubator.
+
+	rs2::disparity_transform depth_to_disparity(true);
+	rs2::disparity_transform disparity_to_depth(false);
+	rs2::colorizer color_filter;
+
+	// filter settings
+	thr_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+	thr_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+	color_filter.set_option(RS2_OPTION_HISTOGRAM_EQUALIZATION_ENABLED, 0);
+	color_filter.set_option(RS2_OPTION_COLOR_SCHEME, 9.0f);		// Hue colorization
+	color_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+	color_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+
 	while (true) {
 
 		timeElapsed = Clock.now() - startTime;
 
-		frameSet = this->rsPipeline.wait_for_frames(1000);
+		frameSet = this->rsPipeline.wait_for_frames(10000);
 
-		if (framesArrived) {
+		frameSet = alignTo.process(frameSet);
 
-
-			frameSet = alignTo.process(frameSet);
-			colorFrame = frameSet.get_color_frame();
-			depthFrame = frameSet.get_depth_frame();
+		colorFrame = frameSet.get_color_frame();
+		depthFrame = frameSet.get_depth_frame();
 
 
-			colorImage = frame_to_mat(colorFrame);
-			depthImage = frame_to_mat(depthFrame);
+		depthFrame = thr_filter.process(depthFrame);
+		depthFrame = depth_to_disparity.process(depthFrame);
+		depthFrame = spat_filter.process(depthFrame);
+		depthFrame = temp_filter.process(depthFrame);
+		depthFrame = disparity_to_depth.process(depthFrame);
+		depthFrame = color_filter.process(depthFrame);
 
-			cv::convertScaleAbs(depthImage, depthImage, 0.03);
-			cv::applyColorMap(depthImage, depthImage, cv::ColormapTypes::COLORMAP_JET);
-			if (colorImage.size().width != 0 && colorImage.size().height != 0 && depthImage.size().width != 0 && depthImage.size().height != 0) {
-				cv::imshow(colorWindowName, colorImage);
-				cv::imshow(depthWindowName, depthImage);
-			}
-			auto key = (char)27;
 
-			if (cv::waitKey(1) == key) {
-				cv::destroyAllWindows();
-				break;
-			}
+		colorImage = frame_to_mat(colorFrame);
+		depthImage = frame_to_mat(depthFrame);
+
+		if (colorImage.size().width != 0 && colorImage.size().height != 0 && depthImage.size().width != 0 && depthImage.size().height != 0) {
+			cv::imshow(colorWindowName, colorImage);
+			cv::imshow(depthWindowName, depthImage);
+		}
+		auto key = (char)27;
+
+		if (cv::waitKey(1) == key) {
+			cv::destroyAllWindows();
+			break;
 		}
 
 		frame_count += 1;
@@ -248,11 +275,9 @@ void VideoRecorder::verifySetUp() {
 
 
 void VideoRecorder::recordVideo() {
-	
-	//int recordingFps = max(this->RGB_FPS, this->Depth_FPS);
 
-	rs2::frame_queue depthFramesQueue(5);
-	rs2::frame_queue colorFramesQueue(5);
+	rs2::frame_queue depthFramesQueue(2);
+	rs2::frame_queue colorFramesQueue(2);
 
 	// Prepare camera and let auto-exposure settle.
 	std::this_thread::sleep_for(std::chrono::seconds(10));
@@ -318,6 +343,10 @@ void VideoRecorder::recordVideo() {
 		}
 		catch (const rs2::error& e) {
 			std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
+			auto depthSensor = this->rsPipeline.get_active_profile().get_device().first<rs2::depth_sensor>();
+			auto colorSensor = this->rsPipeline.get_active_profile().get_device().first<rs2::color_sensor>();
+
+			std::cerr << "" << endl;
 			std::cerr << "Exiting main thread loop." << endl;
 		}
 	}

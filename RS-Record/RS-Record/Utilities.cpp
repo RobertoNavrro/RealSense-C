@@ -78,8 +78,31 @@ void writeFrames(rs2::frame_queue queue,
 
     cout << "Maximum frames per video:" << maxVideoFrames << endl;
 
+    //Filtering necessary for depth
+
+    rs2::decimation_filter dec_filter;  // Decimation - reduces depth frame density
+    rs2::threshold_filter thr_filter;   // Threshold  - removes values outside recommended range
+    rs2::spatial_filter spat_filter;    // Spatial    - edge-preserving spatial smoothing
+    rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
+
+    float min_depth = 0.20f; // Given that we are recording an incubator.
+    float max_depth = 7.0f;  // Given that we are recording an incubator.
+
+    rs2::disparity_transform depth_to_disparity(true);
+    rs2::disparity_transform disparity_to_depth(false);
+    rs2::colorizer color_filter;
+
+    // filter settings
+    thr_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+    thr_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+    color_filter.set_option(RS2_OPTION_HISTOGRAM_EQUALIZATION_ENABLED, 0);
+    color_filter.set_option(RS2_OPTION_COLOR_SCHEME, 9.0f);		// Hue colorization
+    color_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+    color_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+
     // Create clock
     std::chrono::high_resolution_clock Clock;
+
     // Keep track of time in video.
     std::chrono::duration<float> timeElapsed;
     auto startTime = Clock.now();
@@ -109,15 +132,19 @@ void writeFrames(rs2::frame_queue queue,
         }
 
         try {
-            frame = queue.wait_for_frame(15000); // we wait at most 15 seconds otherwise we know the frames have ended and we can stop.
-            currentFrame = frame_to_mat(frame);
+            frame = queue.wait_for_frame(30000); // we wait at most 15 seconds otherwise we know the frames have ended and we can stop.
             frameCount += 1;
 
             if (imageType == "depth") {
-                cv::convertScaleAbs(currentFrame, currentFrame, 0.03);
-                cv::applyColorMap(currentFrame, currentFrame, COLORMAP_JET);
+                frame = thr_filter.process(frame);
+                frame = depth_to_disparity.process(frame);
+                frame = spat_filter.process(frame);
+                frame = temp_filter.process(frame);
+                frame = disparity_to_depth.process(frame);
+                frame = color_filter.process(frame);
             }
 
+            currentFrame = frame_to_mat(frame);
             writer.write(currentFrame);
         }
         catch (const cv::Exception& e) {
