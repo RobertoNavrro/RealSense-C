@@ -11,10 +11,48 @@
 #include <fstream>
 
 #include "Utilities.h"
-#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
+#include "ROIHolder.h"
+//#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
 
 using namespace rs2;
 using namespace std;
+
+
+void depthROICallback(int event, int x, int y, int flags, void* userdata) {
+
+	ROIHolder* depthROI = (ROIHolder*) userdata;
+
+	if (event == cv::EVENT_LBUTTONDOWN) {
+		depthROI->setOriginPoint(x, y);
+		depthROI->dragging = true;
+	}
+
+	else if (event == cv::EVENT_LBUTTONUP) {
+		depthROI->calculateDimensions(x, y);
+		depthROI->dragging = false;
+		depthROI->hasUpdated = true;
+		depthROI->print();
+	}
+
+	if (depthROI->dragging) {
+		depthROI->setEndPoint(x, y);
+	}
+}
+
+void VideoRecorder::setDepthROIDefault(int width, int height) {
+	int origin_x, origin_y;
+	int roi_width, roi_height;
+
+	roi_width = int(0.5 * width);
+	roi_height = int(0.5 * height);
+
+	this->depthROI.width = roi_width;
+	this->depthROI.height = roi_height;
+
+	this->depthROI.setOriginPoint(int(0.25 * width), int(0.25 * height));
+	this->depthROI.setEndPoint(this->depthROI.origin.x + roi_width, this->depthROI.origin.y + roi_height);
+
+}
 
 
 VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLength, bool enableRGB, bool enableDepth) {
@@ -31,6 +69,7 @@ VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLengt
 	this->controlSensorSettings();
 	this->writeIntrinsics();
 	this->writeDepthDeviceInformation();
+	this->setDepthROIDefault(1920, 1080);
 }
 
 void VideoRecorder::stopPipeline() {
@@ -145,8 +184,8 @@ void VideoRecorder::startPipeline(rs2::config config) {
 }
 
 rs2::config VideoRecorder::createContext() { //Todo: Change this to actual video streams!
-
 	rs2:config rsConfig;
+
 	if (this->enableDepth) {
 		rsConfig.enable_stream(RS2_STREAM_DEPTH, 0, 848, 480, RS2_FORMAT_Z16, this->Depth_FPS);
 	}
@@ -226,20 +265,34 @@ void VideoRecorder::setDirectories() {
 }
 
 
+void VideoRecorder::setNewDepthROI(){
+	// Here make the call to the sensor
+	rs2::region_of_interest roi;
+	rs2::roi_sensor roi_sensor(this->rsPLProfile.get_device().first<rs2::depth_sensor>());
+	roi = roi_sensor.get_region_of_interest();
+	roi.min_x = this->depthROI.origin.x;
+	roi.min_y = this->depthROI.origin.y;
+	roi.max_x = this->depthROI.end.x;
+	roi.max_y = this->depthROI.end.y;
+	roi_sensor.set_region_of_interest(roi);
+
+}
+
 void VideoRecorder::verifySetUp() {
 	rs2::align alignTo(RS2_STREAM_COLOR);
 	rs2::colorizer colorMap;
 
 	// Visualization of images.
-	const std::string depthWindowName = "Depth Image";
-	const std::string colorWindowName = "Color Image";
+	const std::string depthWindowName = "Depth_Image";
 	cv::namedWindow(depthWindowName, cv::WINDOW_AUTOSIZE);
-	cv::namedWindow(colorWindowName, cv::WINDOW_AUTOSIZE);
+
+	cv::setMouseCallback(depthWindowName, depthROICallback, (void*)&this->depthROI);
 
 	rs2::frameset frameSet;
 
 	cv::Mat depthImage;
 	cv::Mat colorImage;
+	cv::Mat blendedImage;
 
 	rs2::frame colorFrame;
 	rs2::frame depthFrame;
@@ -276,36 +329,43 @@ void VideoRecorder::verifySetUp() {
 
 		timeElapsed = Clock.now() - startTime;
 
-		frameSet = this->rsPipeline.wait_for_frames(1000);
-
-		if (framesArrived) {
+		frameSet = this->rsPipeline.wait_for_frames(10000);
 
 
-			frameSet = alignTo.process(frameSet);
-			colorFrame = frameSet.get_color_frame();
-			depthFrame = frameSet.get_depth_frame();
+		frameSet = alignTo.process(frameSet);
+		colorFrame = frameSet.get_color_frame();
+		depthFrame = frameSet.get_depth_frame();
 
-			//depthFrame = thr_filter.process(depthFrame);
-			depthFrame = depth_to_disparity.process(depthFrame);
-			depthFrame = spat_filter.process(depthFrame);
-			depthFrame = temp_filter.process(depthFrame);
-			depthFrame = disparity_to_depth.process(depthFrame);
-			depthFrame = color_filter.process(depthFrame);
+		//depthFrame = thr_filter.process(depthFrame);
+		depthFrame = depth_to_disparity.process(depthFrame);
+		depthFrame = spat_filter.process(depthFrame);
+		depthFrame = temp_filter.process(depthFrame);
+		depthFrame = disparity_to_depth.process(depthFrame);
+		depthFrame = color_filter.process(depthFrame);
 
-			colorImage = frame_to_mat(colorFrame);
-			depthImage = frame_to_mat(depthFrame);
+		colorImage = frame_to_mat(colorFrame);
+		depthImage = frame_to_mat(depthFrame);
 
-			if (colorImage.size().width != 0 && colorImage.size().height != 0 && depthImage.size().width != 0 && depthImage.size().height != 0) {
-				cv::imshow(colorWindowName, colorImage);
-				cv::imshow(depthWindowName, depthImage);
-			}
-			auto key = (char)27;
-
-			if (cv::waitKey(1) == key) {
-				cv::destroyAllWindows();
-				break;
-			}
+		if (this->depthROI.hasUpdated) {
+			this->setNewDepthROI();
+			this->depthROI.hasUpdated = false;
 		}
+
+		if (!colorImage.empty()  && !depthImage.empty()) {
+			cv::addWeighted(colorImage, 1, depthImage, 0.1, 0.0, blendedImage);
+
+			this->depthROI.drawROI(blendedImage);
+
+			cv::imshow(depthWindowName, blendedImage);
+		}
+
+		auto key = (char)27;
+
+		if (cv::waitKey(1) == key) {
+			cv::destroyAllWindows();
+			break;
+		}
+		
 
 		frame_count += 1;
 	}

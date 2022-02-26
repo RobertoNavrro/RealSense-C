@@ -1,6 +1,7 @@
 #include <string>
 
 #include <librealsense2/rs.hpp>
+#include "ROIHolder.h"
 
 #ifndef VIDEORECORDER_H
 #define VIDEORECORDER_H
@@ -16,6 +17,7 @@ class VideoRecorder
 		string baseDir;
 		string colorDir;
 		string depthDir;
+		ROIHolder depthROI;
 	
 		rs2::pipeline rsPipeline;
 		rs2::pipeline_profile rsPLProfile;
@@ -44,7 +46,8 @@ class VideoRecorder
 		void writeIntrinsics();
 		void saveIntrinsics(rs2_intrinsics intrinsics, string filename);
 		void writeDepthDeviceInformation();
-
+		void setNewDepthROI();
+		void setDepthROIDefault(int width, int height);
 	public:
 		VideoRecorder(float individualVideoLength, float fullSessionLength, bool enableRGB, bool enableDepth);
 		void recordVideo();
