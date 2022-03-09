@@ -11,10 +11,49 @@
 #include <fstream>
 
 #include "Utilities.h"
-#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
+#include "ROIHolder.h"
+//#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
 
 using namespace rs2;
 using namespace std;
+
+
+void depthROICallback(int event, int x, int y, int flags, void* userdata) {
+
+	ROIHolder* depthROI = (ROIHolder*) userdata;
+
+	if (event == cv::EVENT_LBUTTONDOWN) {
+		depthROI->setOriginPoint(x, y);
+		depthROI->dragging = true;
+	}
+
+	else if (event == cv::EVENT_LBUTTONUP) {
+		depthROI->calculateDimensions(x, y);
+		depthROI->dragging = false;
+		depthROI->hasUpdated = true;
+		depthROI->print();
+	}
+
+	if (depthROI->dragging) {
+		depthROI->setEndPoint(x, y);
+	}
+}
+
+void VideoRecorder::setDepthROIDefault(int width, int height) {
+	int origin_x, origin_y;
+	int roi_width, roi_height;
+
+	roi_width = int(0.5 * width);
+	roi_height = int(0.5 * height);
+
+	this->depthROI.width = roi_width;
+	this->depthROI.height = roi_height;
+
+	this->depthROI.setOriginPoint(int(0.25 * width), int(0.25 * height));
+	this->depthROI.setEndPoint(this->depthROI.origin.x + roi_width, this->depthROI.origin.y + roi_height);
+
+	this->setNewDepthROI();
+}
 
 
 VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLength, bool enableRGB, bool enableDepth) {
@@ -30,11 +69,104 @@ VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLengt
 	this->startPipeline(rsConfig);
 	this->controlSensorSettings();
 	this->writeIntrinsics();
+	this->writeExtrinsics();
 	this->writeDepthDeviceInformation();
+	this->setDepthROIDefault(1080, 720);
 }
 
 void VideoRecorder::stopPipeline() {
 	this->rsPipeline.stop();
+}
+
+void VideoRecorder::writeExtrinsics() {
+	auto videoStream = this->rsPipeline.get_active_profile().get_stream(RS2_STREAM_DEPTH).as<rs2::video_stream_profile>();
+	auto colorStream = this->rsPipeline.get_active_profile().get_stream(RS2_STREAM_COLOR).as<rs2::video_stream_profile>();
+	rs2_extrinsics extrinsicsDepthtoColor = videoStream.get_extrinsics_to(colorStream);
+	rs2_extrinsics extrinsicsColortoDepth = colorStream.get_extrinsics_to(videoStream);
+	this->saveExtrinsics(extrinsicsDepthtoColor, "extrinsics_depth_to_color.json");
+	this->saveExtrinsics(extrinsicsColortoDepth, "extrinsics_color_to_depth.json");
+}
+
+std::vector<std::string> tokenize_floats(string input, char separator) {
+	std::vector<std::string> tokens;
+	stringstream ss(input);
+	string token;
+
+	while (std::getline(ss, token, separator)) {
+		tokens.push_back(token);
+	}
+
+	return tokens;
+}
+
+void VideoRecorder::saveExtrinsics(rs2_extrinsics extrinsics, string filename) {
+
+	ofstream extrinsicsFile;
+	extrinsicsFile.open(this->baseDir + filename);
+	extrinsicsFile << "{" << endl;
+	extrinsicsFile << "    \"rotation_matrix\": [";
+	for (auto i = 0; i < 3; ++i)
+	{
+		if (i != 0){
+			extrinsicsFile << "                        ";
+		}
+		for (auto j = 0; j < 3; ++j)
+		{	
+			extrinsicsFile << extrinsics.rotation[j * 3 + i];
+
+			if (i!=2) {
+				if (j != 2) {
+					extrinsicsFile << ",";
+				}
+				else {
+					extrinsicsFile << "," << endl;
+				}
+			}
+			else {
+				if (j != 2) {
+					extrinsicsFile << ",";
+				}
+				else {
+					extrinsicsFile << "]," << endl;
+				}
+			}
+		}
+	}
+	extrinsicsFile << "    \"translation_vector\": [";
+	for (auto i = 0u; i < sizeof(extrinsics.translation) / sizeof(extrinsics.translation[0]); ++i) {
+		if (i != 2) {
+			extrinsicsFile << extrinsics.translation[i] << ",";
+		}
+		else {
+			extrinsicsFile << extrinsics.translation[i] << "]" << endl;
+		}
+
+	}
+	extrinsicsFile << "}" << endl;
+	extrinsicsFile.close();
+
+	//stringstream ss;
+	//ss << " Rotation Matrix:\n";
+
+	//// Align displayed data along decimal point
+	//for (auto i = 0; i < 3; ++i)
+	//{
+	//	for (auto j = 0; j < 3; ++j)
+	//	{	
+	//		std::ostringstream oss;
+	//		oss << extrinsics.rotation[j * 3 + i];
+	//		auto tokens = tokenize_floats(oss.str().c_str(), '.');
+	//		ss << right << setw(4) << tokens[0];
+	//		if (tokens.size() > 1)
+	//			ss << "." << left << setw(12) << tokens[1];
+	//	}
+	//	ss << endl;
+	//}
+
+	//ss << "\n Translation Vector: ";
+	//for (auto i = 0u; i < sizeof(extrinsics.translation) / sizeof(extrinsics.translation[0]); ++i)
+	//	ss << setprecision(15) << extrinsics.translation[i] << "  ";
+	//std::cout << ss.str() << endl << endl;
 }
 
 void VideoRecorder::saveIntrinsics(rs2_intrinsics intrinsics, string filename) {
@@ -145,8 +277,8 @@ void VideoRecorder::startPipeline(rs2::config config) {
 }
 
 rs2::config VideoRecorder::createContext() { //Todo: Change this to actual video streams!
-
 	rs2:config rsConfig;
+
 	if (this->enableDepth) {
 		rsConfig.enable_stream(RS2_STREAM_DEPTH, 0, 848, 480, RS2_FORMAT_Z16, this->Depth_FPS);
 	}
@@ -226,20 +358,40 @@ void VideoRecorder::setDirectories() {
 }
 
 
+void VideoRecorder::setNewDepthROI(){
+	// Here make the call to the sensor
+
+	float x_scaling = (840.0f / 1080.0f);
+	float y_scaling = (480.0f / 720.0f);
+
+	rs2::region_of_interest roi;
+	rs2::roi_sensor roi_sensor(this->rsPLProfile.get_device().first<rs2::depth_sensor>());
+	roi = roi_sensor.get_region_of_interest();
+	roi.min_x = int(this->depthROI.origin.x * x_scaling);
+	roi.min_y = int(this->depthROI.origin.y * y_scaling);
+	roi.max_x = int(this->depthROI.end.x * x_scaling);
+	roi.max_y = int(this->depthROI.end.y * y_scaling);
+	if (roi.max_y - roi.min_y >= 24 && roi.max_x - roi.min_x >= 48) {
+		roi_sensor.set_region_of_interest(roi);
+	}
+
+}
+
 void VideoRecorder::verifySetUp() {
 	rs2::align alignTo(RS2_STREAM_COLOR);
 	rs2::colorizer colorMap;
 
 	// Visualization of images.
-	const std::string depthWindowName = "Depth Image";
-	const std::string colorWindowName = "Color Image";
+	const std::string depthWindowName = "Depth_Image";
 	cv::namedWindow(depthWindowName, cv::WINDOW_AUTOSIZE);
-	cv::namedWindow(colorWindowName, cv::WINDOW_AUTOSIZE);
+
+	cv::setMouseCallback(depthWindowName, depthROICallback, (void*)&this->depthROI);
 
 	rs2::frameset frameSet;
 
 	cv::Mat depthImage;
 	cv::Mat colorImage;
+	cv::Mat blendedImage;
 
 	rs2::frame colorFrame;
 	rs2::frame depthFrame;
@@ -276,36 +428,50 @@ void VideoRecorder::verifySetUp() {
 
 		timeElapsed = Clock.now() - startTime;
 
-		frameSet = this->rsPipeline.wait_for_frames(1000);
-
-		if (framesArrived) {
+		frameSet = this->rsPipeline.wait_for_frames(10000);
 
 
-			frameSet = alignTo.process(frameSet);
-			colorFrame = frameSet.get_color_frame();
-			depthFrame = frameSet.get_depth_frame();
+		frameSet = alignTo.process(frameSet);
+		colorFrame = frameSet.get_color_frame();
+		depthFrame = frameSet.get_depth_frame();
 
-			//depthFrame = thr_filter.process(depthFrame);
-			depthFrame = depth_to_disparity.process(depthFrame);
-			depthFrame = spat_filter.process(depthFrame);
-			depthFrame = temp_filter.process(depthFrame);
-			depthFrame = disparity_to_depth.process(depthFrame);
-			depthFrame = color_filter.process(depthFrame);
+		//depthFrame = thr_filter.process(depthFrame);
+		depthFrame = depth_to_disparity.process(depthFrame);
+		depthFrame = spat_filter.process(depthFrame);
+		depthFrame = temp_filter.process(depthFrame);
+		depthFrame = disparity_to_depth.process(depthFrame);
+		depthFrame = color_filter.process(depthFrame);
 
-			colorImage = frame_to_mat(colorFrame);
-			depthImage = frame_to_mat(depthFrame);
+		colorImage = frame_to_mat(colorFrame);
+		depthImage = frame_to_mat(depthFrame);
 
-			if (colorImage.size().width != 0 && colorImage.size().height != 0 && depthImage.size().width != 0 && depthImage.size().height != 0) {
-				cv::imshow(colorWindowName, colorImage);
-				cv::imshow(depthWindowName, depthImage);
-			}
-			auto key = (char)27;
+		cv::Mat color_resize;// = Mat(Size(1080, 720), CV_8UC3);
+		cv::Mat depth_resize;// = Mat(Size(1080, 720), CV_8UC3);
 
-			if (cv::waitKey(1) == key) {
-				cv::destroyAllWindows();
-				break;
-			}
+		cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
+		cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
+		
+
+		if (this->depthROI.hasUpdated) {
+			this->setNewDepthROI();
+			this->depthROI.hasUpdated = false;
 		}
+
+		if (!color_resize.empty()  && !depth_resize.empty()) {
+			cv::addWeighted(color_resize, 1, depth_resize, 0.5, 0.0, blendedImage);
+
+			this->depthROI.drawROI(blendedImage);
+
+			cv::imshow(depthWindowName, blendedImage);
+		}
+
+		auto key = (char)27;
+
+		if (cv::waitKey(1) == key) {
+			cv::destroyAllWindows();
+			break;
+		}
+		
 
 		frame_count += 1;
 	}
