@@ -145,29 +145,6 @@ void VideoRecorder::saveExtrinsics(rs2_extrinsics extrinsics, string filename) {
 	}
 	extrinsicsFile << "}" << endl;
 	extrinsicsFile.close();
-
-	//stringstream ss;
-	//ss << " Rotation Matrix:\n";
-
-	//// Align displayed data along decimal point
-	//for (auto i = 0; i < 3; ++i)
-	//{
-	//	for (auto j = 0; j < 3; ++j)
-	//	{	
-	//		std::ostringstream oss;
-	//		oss << extrinsics.rotation[j * 3 + i];
-	//		auto tokens = tokenize_floats(oss.str().c_str(), '.');
-	//		ss << right << setw(4) << tokens[0];
-	//		if (tokens.size() > 1)
-	//			ss << "." << left << setw(12) << tokens[1];
-	//	}
-	//	ss << endl;
-	//}
-
-	//ss << "\n Translation Vector: ";
-	//for (auto i = 0u; i < sizeof(extrinsics.translation) / sizeof(extrinsics.translation[0]); ++i)
-	//	ss << setprecision(15) << extrinsics.translation[i] << "  ";
-	//std::cout << ss.str() << endl << endl;
 }
 
 void VideoRecorder::saveIntrinsics(rs2_intrinsics intrinsics, string filename) {
@@ -379,6 +356,89 @@ void VideoRecorder::setNewDepthROI(){
 
 }
 
+int VideoRecorder::adjustVideo(cv::Mat color_image, cv::Mat depth_image, string windowName) {
+
+	auto esc_key = (char)27; // ESCAPE, closes the preview mode.
+	auto enter_key = (char)13; // Enter, sets input
+	auto increase_exposure = (char)38; //up key, for exposure
+	auto decrease_exposure = (char)40; // down key for exposure
+
+	if (cv::waitKey(1) == esc_key) {
+		cv::destroyAllWindows();
+		return 0;
+	}
+
+	if (this->exposure_switched) {
+
+		rs2::color_sensor colorSensor = this->rsPLProfile.get_device().first<rs2::color_sensor>();
+		rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
+
+		if (this->auto_exposure_is_enabled == false) {
+			colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
+			depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
+
+			this->auto_exposure_is_enabled = true;
+		}
+		else {
+
+			this->exposure_value;
+
+			colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
+			depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
+
+			// set exposure levels to old auto exposure levels (if needed)  
+
+			this->auto_exposure_is_enabled = false;
+		}
+	}
+
+
+	if (!this->auto_exposure_is_enabled) {
+		if (cv::waitKey(1) == increase_exposure) {
+			//color_sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0);
+			//color_sensor.set_option(RS2_OPTION_EXPOSURE, ); //current exposure level
+		}
+			
+		if (cv::waitKey(1) == decrease_exposure) {
+			// do the rs2 exposure stuff here
+		}
+		// here we have to do controls for the 
+
+	} else 
+	{
+		if (this->depthROI.hasUpdated) {
+			this->setNewDepthROI();
+			this->depthROI.hasUpdated = false;
+		}
+		//TODO colorROI
+		//if (this->colorROI.hasUpdated) {
+		//	this->setNewColorROI();
+		//	this->colorhROI.hasUpdated = false;
+		//}
+	}
+
+
+	if (!color_image.empty() && !depth_image.empty()) {
+
+		cv::Mat blendedImage;
+
+		cv::addWeighted(color_image, 1, depth_image, 0.5, 0.0, blendedImage);
+		
+
+		if (this->auto_exposure_is_enabled) {
+			this->depthROI.drawROI(blendedImage);
+		}
+
+		if (!this->auto_exposure_is_enabled) {
+			cv::putText(blendedImage, "Manual Mode: On", cv::Point(50, 50), cv::FONT_HERSHEY_PLAIN, 1, (255, 255, 255));
+		}
+
+		cv::imshow(windowName, blendedImage);
+	}
+
+	return 1;
+}
+
 void VideoRecorder::verifySetUp() {
 	rs2::align alignTo(RS2_STREAM_COLOR);
 
@@ -426,6 +486,10 @@ void VideoRecorder::verifySetUp() {
 
 	int frame_count = 0;
 
+
+	auto tab_key = (char)9; //TAB, turns the manual adjustment on and off.
+
+
 	while (true) {
 
 		timeElapsed = Clock.now() - startTime;
@@ -451,32 +515,16 @@ void VideoRecorder::verifySetUp() {
 
 		cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
 		cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
-		
-		if (manuallyAdjust) {
-			if (this->auto_exposure_is_enabled) {
-				if (this->depthROI.hasUpdated) {
-					this->setNewDepthROI();
-					this->depthROI.hasUpdated = false;
-				}
-			}
+
+		if (cv::waitKey(1) == tab_key) {
+			this->exposure_switched = true;
 		}
 
-		if (!color_resize.empty()  && !depth_resize.empty()) {
-			cv::addWeighted(color_resize, 1, depth_resize, 0.5, 0.0, blendedImage);
 
-			this->depthROI.drawROI(blendedImage);
-
-			cv::imshow(depthWindowName, blendedImage);
-		}
-
-		auto key = (char)27;
-
-		if (cv::waitKey(1) == key) {
-			cv::destroyAllWindows();
+		if (adjustVideo(color_resize, depth_resize, depthWindowName)==0) {
 			break;
 		}
-		
-
+		this->exposure_switched = false;
 		frame_count += 1;
 	}
 	

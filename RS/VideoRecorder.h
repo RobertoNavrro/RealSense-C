@@ -31,9 +31,12 @@ class VideoRecorder
 		int videoCount;
 
 		bool showVideo;
+		bool manuallyAdjust;
 		bool enableRGB;
 		bool enableDepth;
-		bool auto_exposure_is_enabled;
+		bool auto_exposure_is_enabled = true;
+		int exposure_value;
+		bool exposure_switched = false;
 		bool verifyOptionSupport(rs2::sensor, rs2_option);
 
 		void calculateIndividualVidLength(float min);
@@ -50,6 +53,7 @@ class VideoRecorder
 		void saveExtrinsics(rs2_extrinsics extrinsics, string filename);
 		void writeDepthDeviceInformation();
 		void setNewDepthROI();
+		int adjustVideo(cv::Mat color_image, cv::Mat depth_image, string windowName);
 		void setDepthROIDefault(int width, int height);
 	public:
 		VideoRecorder(float individualVideoLength, float fullSessionLength, bool enableRGB, bool enableDepth);
