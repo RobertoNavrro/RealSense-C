@@ -12,6 +12,7 @@
 
 #include "Utilities.h"
 #include "ROIHolder.h"
+//#include <WinUser.h>
 //#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
 
 using namespace rs2;
@@ -256,6 +257,7 @@ void VideoRecorder::controlSensorSettings() {
 
 			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_EXPOSURE)) {
 				colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
+				this->auto_exposure_is_enabled = true;
 			}
 
 			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_WHITE_BALANCE)) {
@@ -379,7 +381,6 @@ void VideoRecorder::setNewDepthROI(){
 
 void VideoRecorder::verifySetUp() {
 	rs2::align alignTo(RS2_STREAM_COLOR);
-	rs2::colorizer colorMap;
 
 	// Visualization of images.
 	const std::string depthWindowName = "Depth_Image";
@@ -417,10 +418,11 @@ void VideoRecorder::verifySetUp() {
 	color_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
 	color_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
 
-	bool framesArrived = true;
 	std::chrono::duration<float> timeElapsed;
 	auto startTime = Clock.now();
 	timeElapsed = Clock.now() - startTime;
+
+	bool manuallyAdjust = true;
 
 	int frame_count = 0;
 
@@ -435,7 +437,6 @@ void VideoRecorder::verifySetUp() {
 		colorFrame = frameSet.get_color_frame();
 		depthFrame = frameSet.get_depth_frame();
 
-		//depthFrame = thr_filter.process(depthFrame);
 		depthFrame = depth_to_disparity.process(depthFrame);
 		depthFrame = spat_filter.process(depthFrame);
 		depthFrame = temp_filter.process(depthFrame);
@@ -445,16 +446,19 @@ void VideoRecorder::verifySetUp() {
 		colorImage = frame_to_mat(colorFrame);
 		depthImage = frame_to_mat(depthFrame);
 
-		cv::Mat color_resize;// = Mat(Size(1080, 720), CV_8UC3);
-		cv::Mat depth_resize;// = Mat(Size(1080, 720), CV_8UC3);
+		cv::Mat color_resize; 
+		cv::Mat depth_resize;
 
 		cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
 		cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
 		
-
-		if (this->depthROI.hasUpdated) {
-			this->setNewDepthROI();
-			this->depthROI.hasUpdated = false;
+		if (manuallyAdjust) {
+			if (this->auto_exposure_is_enabled) {
+				if (this->depthROI.hasUpdated) {
+					this->setNewDepthROI();
+					this->depthROI.hasUpdated = false;
+				}
+			}
 		}
 
 		if (!color_resize.empty()  && !depth_resize.empty()) {
@@ -483,11 +487,13 @@ void VideoRecorder::verifySetUp() {
 
 void VideoRecorder::recordVideo() {
 
+	// ################## Necessary for raw recording. ################## //
+
 	rs2::frame_queue depthFramesQueue(2);
 	rs2::frame_queue colorFramesQueue(2);
 
 	// Prepare camera and let auto-exposure settle.
-	std::this_thread::sleep_for(std::chrono::seconds(10));
+	std::this_thread::sleep_for(std::chrono::seconds(5));
 
 	// Depth colorization and alignment.
 	rs2::align alignTo(RS2_STREAM_COLOR);
@@ -515,6 +521,38 @@ void VideoRecorder::recordVideo() {
 	std::chrono::duration<float> timeElapsed;
 	auto startTime = Clock.now();
 	timeElapsed = Clock.now() - startTime;
+
+	auto preview_key = (char)32;
+	bool displayVideo = false;
+	auto windowName = "Preview";
+	cv::namedWindow(windowName, WINDOW_AUTOSIZE);
+
+	cv::Mat depthImage;
+	cv::Mat colorImage;
+
+	//	################## Preview necessaries for depth. ################## //
+
+	rs2::decimation_filter dec_filter;  // Decimation - reduces depth frame density
+	rs2::threshold_filter thr_filter;   // Threshold  - removes values outside recommended range
+	rs2::spatial_filter spat_filter;    // Spatial    - edge-preserving spatial smoothing
+	rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
+
+	auto min_depth = this->minDepth; // Given that we are recording an incubator.
+	auto max_depth = this->maxDepth;  // Given that we are recording an incubator.
+
+	rs2::disparity_transform depth_to_disparity(true);
+	rs2::disparity_transform disparity_to_depth(false);
+	rs2::colorizer color_filter;
+
+	// filter settings
+	thr_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+	thr_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+	color_filter.set_option(RS2_OPTION_HISTOGRAM_EQUALIZATION_ENABLED, 0);
+	color_filter.set_option(RS2_OPTION_COLOR_SCHEME, 9.0f);		// Hue colorization
+	color_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
+	color_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
+
+
 	// Record a video
 	while (true) {
 
@@ -539,6 +577,41 @@ void VideoRecorder::recordVideo() {
 				colorFrame = frameSet.get_color_frame();
 				colorFramesQueue.enqueue(colorFrame);
 			}
+
+			if (cv::waitKey(1) == preview_key) {
+				displayVideo = !displayVideo;
+				if (displayVideo == false) {
+					cv::imshow(windowName,cv::Mat(720, 1080, CV_8UC3, cv::Scalar(0, 0, 0)));
+				}
+			}
+
+			if (displayVideo) {
+
+				depthFrame = depth_to_disparity.process(depthFrame);
+				depthFrame = spat_filter.process(depthFrame);
+				depthFrame = temp_filter.process(depthFrame);
+				depthFrame = disparity_to_depth.process(depthFrame);
+				depthFrame = color_filter.process(depthFrame);
+
+				colorImage = frame_to_mat(colorFrame);
+				depthImage = frame_to_mat(depthFrame);
+
+				cv::Mat color_resize;
+				cv::Mat depth_resize;
+				cv::Mat blendedImage;
+
+				cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
+				cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
+
+				if (!color_resize.empty() && !depth_resize.empty()) {
+
+					cv::addWeighted(color_resize, 1, depth_resize, 0.5, 0.0, blendedImage);
+					this->depthROI.drawROI(blendedImage);
+
+					cv::imshow(windowName, blendedImage);
+				}
+			}
+
 			// Updating time loop and frames
 			recordedFrameCount++;
 
@@ -554,6 +627,7 @@ void VideoRecorder::recordVideo() {
 			system("pause");
 		}
 	}
+
 
 	std::cout << "Number of frames captured:" << recordedFrameCount << endl;
 	std::cout << "Number of max possible frames:" << maxFrames << endl;

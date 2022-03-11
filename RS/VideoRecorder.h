@@ -33,6 +33,7 @@ class VideoRecorder
 		bool showVideo;
 		bool enableRGB;
 		bool enableDepth;
+		bool auto_exposure_is_enabled;
 		bool verifyOptionSupport(rs2::sensor, rs2_option);
 
 		void calculateIndividualVidLength(float min);
