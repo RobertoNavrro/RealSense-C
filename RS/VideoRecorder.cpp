@@ -381,7 +381,7 @@ int VideoRecorder::adjustVideo(cv::Mat color_image, cv::Mat depth_image, string 
 		}
 		else {
 
-			this->exposure_value;
+			this->exposure_value; //frame.get_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE) 
 
 			colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
 			depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
