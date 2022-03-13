@@ -12,33 +12,12 @@
 
 #include "Utilities.h"
 #include "ROIHolder.h"
+#include "VideoController.h"
 //#include <WinUser.h>
 //#include <opencv-3.4/modules/imgproc/include/opencv2/imgproc.hpp>
 
 using namespace rs2;
 using namespace std;
-
-
-void depthROICallback(int event, int x, int y, int flags, void* userdata) {
-
-	ROIHolder* depthROI = (ROIHolder*) userdata;
-
-	if (event == cv::EVENT_LBUTTONDOWN) {
-		depthROI->setOriginPoint(x, y);
-		depthROI->dragging = true;
-	}
-
-	else if (event == cv::EVENT_LBUTTONUP) {
-		depthROI->calculateDimensions(x, y);
-		depthROI->dragging = false;
-		depthROI->hasUpdated = true;
-		depthROI->print();
-	}
-
-	if (depthROI->dragging) {
-		depthROI->setEndPoint(x, y);
-	}
-}
 
 void VideoRecorder::setDepthROIDefault(int width, int height) {
 	int origin_x, origin_y;
@@ -69,10 +48,17 @@ VideoRecorder::VideoRecorder (float individualVideoLength,float fullSessionLengt
 	rs2::config rsConfig = this->createContext();
 	this->startPipeline(rsConfig);
 	this->controlSensorSettings();
+	this->createVideoController();
 	this->writeIntrinsics();
 	this->writeExtrinsics();
 	this->writeDepthDeviceInformation();
 	this->setDepthROIDefault(1080, 720);
+}
+
+void VideoRecorder::createVideoController() {
+	rs2::sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
+	rs2::sensor colorSensor = this->rsPLProfile.get_device().first<rs2::color_sensor>();
+	this->videoController = VideoController(colorSensor, depthSensor, "Preview");
 }
 
 void VideoRecorder::stopPipeline() {
@@ -86,18 +72,6 @@ void VideoRecorder::writeExtrinsics() {
 	rs2_extrinsics extrinsicsColortoDepth = colorStream.get_extrinsics_to(videoStream);
 	this->saveExtrinsics(extrinsicsDepthtoColor, "extrinsics_depth_to_color.json");
 	this->saveExtrinsics(extrinsicsColortoDepth, "extrinsics_color_to_depth.json");
-}
-
-std::vector<std::string> tokenize_floats(string input, char separator) {
-	std::vector<std::string> tokens;
-	stringstream ss(input);
-	string token;
-
-	while (std::getline(ss, token, separator)) {
-		tokens.push_back(token);
-	}
-
-	return tokens;
 }
 
 void VideoRecorder::saveExtrinsics(rs2_extrinsics extrinsics, string filename) {
@@ -234,7 +208,6 @@ void VideoRecorder::controlSensorSettings() {
 
 			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_EXPOSURE)) {
 				colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
-				this->auto_exposure_is_enabled = true;
 			}
 
 			if (verifyOptionSupport(colorSensor, RS2_OPTION_ENABLE_AUTO_WHITE_BALANCE)) {
@@ -255,7 +228,7 @@ void VideoRecorder::startPipeline(rs2::config config) {
 	this->rsPLProfile = this->rsPipeline.start(config);
 }
 
-rs2::config VideoRecorder::createContext() { //Todo: Change this to actual video streams!
+rs2::config VideoRecorder::createContext() { 
 	rs2:config rsConfig;
 
 	if (this->enableDepth) {
@@ -356,140 +329,31 @@ void VideoRecorder::setNewDepthROI(){
 
 }
 
-int VideoRecorder::adjustVideo(cv::Mat color_image, cv::Mat depth_image, string windowName) {
-
-	auto esc_key = (char)27; // ESCAPE, closes the preview mode.
-	auto enter_key = (char)13; // Enter, sets input
-	auto increase_exposure = (char)38; //up key, for exposure
-	auto decrease_exposure = (char)40; // down key for exposure
-
-	if (cv::waitKey(1) == esc_key) {
-		cv::destroyAllWindows();
-		return 0;
-	}
-
-	if (this->exposure_switched) {
-
-		rs2::color_sensor colorSensor = this->rsPLProfile.get_device().first<rs2::color_sensor>();
-		rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
-
-		if (this->auto_exposure_is_enabled == false) {
-			colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
-			depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
-
-			this->auto_exposure_is_enabled = true;
-		}
-		else {
-
-			this->exposure_value; //frame.get_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE) 
-
-			colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
-			depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
-
-			// set exposure levels to old auto exposure levels (if needed)  
-
-			this->auto_exposure_is_enabled = false;
-		}
-	}
+// TODO: Change which exposure we are setting, either depth or color, not together.
 
 
-	if (!this->auto_exposure_is_enabled) {
-		if (cv::waitKey(1) == increase_exposure) {
-			//color_sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0);
-			//color_sensor.set_option(RS2_OPTION_EXPOSURE, ); //current exposure level
-		}
-			
-		if (cv::waitKey(1) == decrease_exposure) {
-			// do the rs2 exposure stuff here
-		}
-		// here we have to do controls for the 
+	//if(auto_exposure_not_enabled)
+	//{
 
-	} else 
-	{
-		if (this->depthROI.hasUpdated) {
-			this->setNewDepthROI();
-			this->depthROI.hasUpdated = false;
-		}
-		//TODO colorROI
-		//if (this->colorROI.hasUpdated) {
-		//	this->setNewColorROI();
-		//	this->colorhROI.hasUpdated = false;
-		//}
-	}
+	//	if (this->depthROI.hasUpdated) {
+	//		this->setNewDepthROI();
+	//		this->depthROI.hasUpdated = false;
+	//	}
 
-
-	if (!color_image.empty() && !depth_image.empty()) {
-
-		cv::Mat blendedImage;
-
-		cv::addWeighted(color_image, 1, depth_image, 0.5, 0.0, blendedImage);
-		
-
-		if (this->auto_exposure_is_enabled) {
-			this->depthROI.drawROI(blendedImage);
-		}
-
-		if (!this->auto_exposure_is_enabled) {
-			cv::putText(blendedImage, "Manual Mode: On", cv::Point(50, 50), cv::FONT_HERSHEY_PLAIN, 1, (255, 255, 255));
-		}
-
-		cv::imshow(windowName, blendedImage);
-	}
-
-	return 1;
-}
 
 void VideoRecorder::verifySetUp() {
 	rs2::align alignTo(RS2_STREAM_COLOR);
 
-	// Visualization of images.
-	const std::string depthWindowName = "Depth_Image";
-	cv::namedWindow(depthWindowName, cv::WINDOW_AUTOSIZE);
-
-	cv::setMouseCallback(depthWindowName, depthROICallback, (void*)&this->depthROI);
-
 	rs2::frameset frameSet;
-
-	cv::Mat depthImage;
-	cv::Mat colorImage;
-	cv::Mat blendedImage;
 
 	rs2::frame colorFrame;
 	rs2::frame depthFrame;
 	std::chrono::high_resolution_clock Clock;
-
-	rs2::decimation_filter dec_filter;  // Decimation - reduces depth frame density
-	rs2::threshold_filter thr_filter;   // Threshold  - removes values outside recommended range
-	rs2::spatial_filter spat_filter;    // Spatial    - edge-preserving spatial smoothing
-	rs2::temporal_filter temp_filter;   // Temporal   - reduces temporal noise
-
-	auto min_depth = this->minDepth; // Given that we are recording an incubator.
-	auto max_depth = this->maxDepth;  // Given that we are recording an incubator.
-
-	rs2::disparity_transform depth_to_disparity(true);
-	rs2::disparity_transform disparity_to_depth(false);
-	rs2::colorizer color_filter;
-
-	// filter settings
-	thr_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
-	thr_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
-	color_filter.set_option(RS2_OPTION_HISTOGRAM_EQUALIZATION_ENABLED, 0);
-	color_filter.set_option(RS2_OPTION_COLOR_SCHEME, 9.0f);		// Hue colorization
-	color_filter.set_option(RS2_OPTION_MAX_DISTANCE, max_depth);
-	color_filter.set_option(RS2_OPTION_MIN_DISTANCE, min_depth);
-
 	std::chrono::duration<float> timeElapsed;
 	auto startTime = Clock.now();
 	timeElapsed = Clock.now() - startTime;
 
-	bool manuallyAdjust = true;
-
 	int frame_count = 0;
-
-
-	auto tab_key = (char)9; //TAB, turns the manual adjustment on and off.
-
-
 	while (true) {
 
 		timeElapsed = Clock.now() - startTime;
@@ -501,35 +365,12 @@ void VideoRecorder::verifySetUp() {
 		colorFrame = frameSet.get_color_frame();
 		depthFrame = frameSet.get_depth_frame();
 
-		depthFrame = depth_to_disparity.process(depthFrame);
-		depthFrame = spat_filter.process(depthFrame);
-		depthFrame = temp_filter.process(depthFrame);
-		depthFrame = disparity_to_depth.process(depthFrame);
-		depthFrame = color_filter.process(depthFrame);
-
-		colorImage = frame_to_mat(colorFrame);
-		depthImage = frame_to_mat(depthFrame);
-
-		cv::Mat color_resize; 
-		cv::Mat depth_resize;
-
-		cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
-		cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
-
-		if (cv::waitKey(1) == tab_key) {
-			this->exposure_switched = true;
-		}
-
-
-		if (adjustVideo(color_resize, depth_resize, depthWindowName)==0) {
+		if (this->videoController.update(colorFrame, depthFrame) == 0) {
 			break;
 		}
-		this->exposure_switched = false;
+
 		frame_count += 1;
 	}
-	
-	depthImage.release();
-	colorImage.release();
 }
 
 
@@ -572,8 +413,8 @@ void VideoRecorder::recordVideo() {
 
 	auto preview_key = (char)32;
 	bool displayVideo = false;
-	auto windowName = "Preview";
-	cv::namedWindow(windowName, WINDOW_AUTOSIZE);
+	
+	this->videoController.createCVWindow();
 
 	cv::Mat depthImage;
 	cv::Mat colorImage;
@@ -626,39 +467,7 @@ void VideoRecorder::recordVideo() {
 				colorFramesQueue.enqueue(colorFrame);
 			}
 
-			if (cv::waitKey(1) == preview_key) {
-				displayVideo = !displayVideo;
-				if (displayVideo == false) {
-					cv::imshow(windowName,cv::Mat(720, 1080, CV_8UC3, cv::Scalar(0, 0, 0)));
-				}
-			}
-
-			if (displayVideo) {
-
-				depthFrame = depth_to_disparity.process(depthFrame);
-				depthFrame = spat_filter.process(depthFrame);
-				depthFrame = temp_filter.process(depthFrame);
-				depthFrame = disparity_to_depth.process(depthFrame);
-				depthFrame = color_filter.process(depthFrame);
-
-				colorImage = frame_to_mat(colorFrame);
-				depthImage = frame_to_mat(depthFrame);
-
-				cv::Mat color_resize;
-				cv::Mat depth_resize;
-				cv::Mat blendedImage;
-
-				cv::resize(colorImage, color_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
-				cv::resize(depthImage, depth_resize, cv::Size(1080, 720), cv::INTER_LINEAR);
-
-				if (!color_resize.empty() && !depth_resize.empty()) {
-
-					cv::addWeighted(color_resize, 1, depth_resize, 0.5, 0.0, blendedImage);
-					this->depthROI.drawROI(blendedImage);
-
-					cv::imshow(windowName, blendedImage);
-				}
-			}
+			this->videoController.update(colorFrame, depthFrame);
 
 			// Updating time loop and frames
 			recordedFrameCount++;
@@ -672,11 +481,12 @@ void VideoRecorder::recordVideo() {
 			std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
 			std::cerr << "Camera did overheat with a temperature of: " << this->rsPipeline.get_active_profile().get_device().first<rs2::depth_sensor>().get_option(RS2_OPTION_ASIC_TEMPERATURE) << "C." << endl;
 			std::cerr << "Program has unexpectedly exited." << endl << "Try moving the sensor further from the incubator." << endl;
+			cv::destroyAllWindows();
 			system("pause");
 		}
 	}
 
-
+	cv::destroyAllWindows();
 	std::cout << "Number of frames captured:" << recordedFrameCount << endl;
 	std::cout << "Number of max possible frames:" << maxFrames << endl;
 
