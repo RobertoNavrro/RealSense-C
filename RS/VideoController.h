@@ -76,11 +76,13 @@ public:
 	void pauseCVWindow();
 	void unpauseCVWindow();
 	void destroyCVWindow();
-    bool update(rs2::frame& colorFrame, rs2::frame& depthFrame);
+    void update(rs2::frame& colorFrame, rs2::frame& depthFrame);
 	void showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame);
 	ROIHolder getROI();
 	bool getShowingPreview();
 	void setROIUpdated(bool updated);
+	void setNewDepthROI();
+	void setNewRgbROI();
 	string windowName;
 };
 

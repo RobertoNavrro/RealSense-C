@@ -248,13 +248,17 @@ void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) 
 
 }
 
-bool VideoController::update( rs2::frame& colorFrame,  rs2::frame& depthFrame) {
+void VideoController::update(rs2::frame& colorFrame, rs2::frame& depthFrame) {
 	this->handleInput();
 	if (this->is_showing_preview) {
 		this->showVideo(colorFrame, depthFrame);
 	}
 
-	return this->ROI.hasUpdated;
+	if (this->ROI.hasUpdated) {
+		this->setNewDepthROI();
+		this->setNewRgbROI();
+		this->ROI.hasUpdated = false;
+	}
 }
 
 void VideoController::setROIDefault(int width, int height) {
@@ -273,6 +277,56 @@ void VideoController::setROIDefault(int width, int height) {
 	this->ROI.hasUpdated = true;
 
 }
+
+void VideoController::setNewDepthROI() {
+	// Here make the call to the sensor
+
+	float x_scaling = (840.0f / 1080.0f);
+	float y_scaling = (480.0f / 720.0f);
+
+	rs2::region_of_interest roi;
+	rs2::roi_sensor roi_sensor(this->depthSensor);
+	roi = roi_sensor.get_region_of_interest();
+	roi.min_x = int(this->ROI.origin.x * x_scaling);
+	roi.min_y = int(this->ROI.origin.y * y_scaling);
+	roi.max_x = int(this->ROI.end.x * x_scaling);
+	roi.max_y = int(this->ROI.end.y * y_scaling);
+	if (roi.max_y - roi.min_y >= 24 && roi.max_x - roi.min_x >= 48) {
+		roi_sensor.set_region_of_interest(roi);
+	}
+
+	std::cout << "RoI depth:" << std::endl;
+	std::cout << "Min_x:" << roi.min_x << std::endl;
+	std::cout << "Min_y:" << roi.min_y << std::endl;
+	std::cout << "Max_x:" << roi.max_x << std::endl;
+	std::cout << "Max_y:" << roi.max_y << std::endl;
+}
+
+void VideoController::setNewRgbROI() {
+	// Here make the call to the sensor
+
+	float x_scaling = (1920.0f / 1080.0f);
+	float y_scaling = (1080.0f / 720.0f);
+
+	rs2::region_of_interest roi;
+	rs2::roi_sensor roi_sensor(this->colorSensor);
+	roi = roi_sensor.get_region_of_interest();
+	roi.min_x = int(this->ROI.origin.x * x_scaling);
+	roi.min_y = int(this->ROI.origin.y * y_scaling);
+	roi.max_x = int(this->ROI.end.x * x_scaling);
+	roi.max_y = int(this->ROI.end.y * y_scaling);
+	if (roi.max_y - roi.min_y >= 24 && roi.max_x - roi.min_x >= 48) {
+		roi_sensor.set_region_of_interest(roi);
+	}
+
+	std::cout << "RoI RGB:" << std::endl;
+	std::cout << "Min_x:" << roi.min_x << std::endl;
+	std::cout << "Min_y:" << roi.min_y << std::endl;
+	std::cout << "Max_x:" << roi.max_x << std::endl;
+	std::cout << "Max_y:" << roi.max_y << std::endl;
+}
+
+
 
 ROIHolder VideoController::getROI() {
 	return this->ROI;

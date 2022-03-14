@@ -48,8 +48,7 @@ class VideoRecorder
 		void saveIntrinsics(rs2_intrinsics intrinsics, string filename);
 		void saveExtrinsics(rs2_extrinsics extrinsics, string filename);
 		void writeDepthDeviceInformation();
-		void setNewDepthROI(ROIHolder ROI);
-		void setNewRgbROI(ROIHolder ROI);
+		
 
 		rs2::config createContext();
 
