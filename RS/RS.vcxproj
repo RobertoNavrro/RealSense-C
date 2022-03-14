@@ -155,10 +155,14 @@
   <ItemGroup>
     <ClCompile Include="RS.cpp" />
     <ClCompile Include="Utilities.cpp" />
+    <ClCompile Include="VideoController.cpp" />
     <ClCompile Include="VideoRecorder.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ControllingTypes.h" />
+    <ClInclude Include="ROIHolder.h" />
     <ClInclude Include="Utilities.h" />
+    <ClInclude Include="VideoController.h" />
     <ClInclude Include="VideoRecorder.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

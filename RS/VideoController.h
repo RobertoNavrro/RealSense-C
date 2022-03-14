@@ -5,6 +5,7 @@
 #include <librealsense2/rs.hpp>
 #include <iostream>
 #include <string>
+#include "ROIHolder.h"
 #include "ControllingTypes.h"
 
 #ifndef VIDEOCONTROLLER_H
@@ -29,12 +30,10 @@ private:
 	char tab_key = (char)9; // Change between manual and automatic mode.
 	char control_depth_key = (char)100;
 	char control_rgb_key = (char)99;
-	char preview_toggle = (char)32;
 
 	bool is_depth_auto_exposure_enabled = true;
 	bool is_rgb_auto_exposure_enabled = true;
-	bool is_showing_video = true;
-	bool is_video_destroyed = false;
+	bool is_showing_preview = true;
 
 	int rgb_exposure_value;
 	int depth_exposure_value;
@@ -44,6 +43,14 @@ private:
 
 	float minDepth = 0.19f;
 	float maxDepth = 7.0f;
+
+	int displayWidth = 1080;
+	int displayHeight = 720; 
+
+	// The RoI in the visible in the video preview
+	ROIHolder ROI;
+	void setROIDefault(int width, int height);
+	
 
 	cv::Mat defaultImage = cv::Mat(720, 1080, CV_8UC3, cv::Scalar(0, 0, 0));
 
@@ -66,8 +73,14 @@ public:
 	void controlDepthExposure();
 	void controlColorExposure();
 	void createCVWindow();
-	int update(rs2::frame& colorFrame, rs2::frame& depthFrame);
+	void pauseCVWindow();
+	void unpauseCVWindow();
+	void destroyCVWindow();
+    bool update(rs2::frame& colorFrame, rs2::frame& depthFrame);
 	void showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame);
+	ROIHolder getROI();
+	bool getShowingPreview();
+	void setROIUpdated(bool updated);
 	string windowName;
 };
 

@@ -3,29 +3,28 @@
 #include "Utilities.h"
 #include "ControllingTypes.h"
 
-void depthROICallback(int event, int x, int y, int flags, void* userdata) {
+void ROICallback(int event, int x, int y, int flags, void* userdata) {
 
-	ROIHolder* depthROI = (ROIHolder*)userdata;
+	ROIHolder* ROI = (ROIHolder*)userdata;
 
 	if (event == cv::EVENT_LBUTTONDOWN) {
-		depthROI->setOriginPoint(x, y);
-		depthROI->dragging = true;
+		ROI->setOriginPoint(x, y);
+		ROI->dragging = true;
 	}
 
 	else if (event == cv::EVENT_LBUTTONUP) {
-		depthROI->calculateDimensions(x, y);
-		depthROI->dragging = false;
-		depthROI->hasUpdated = true;
-		depthROI->print();
+		ROI->calculateDimensions(x, y);
+		ROI->dragging = false;
+		ROI->hasUpdated = true;
+		ROI->print();
 	}
 
-	if (depthROI->dragging) {
-		depthROI->setEndPoint(x, y);
+	if (ROI->dragging) {
+		ROI->setEndPoint(x, y);
 	}
 }
 
 VideoController::VideoController() {
-	this->windowName = "Preview";
 }
 
 VideoController::VideoController(rs2::sensor& colorSensor, rs2::sensor& depthSensor, string windowName) {
@@ -37,14 +36,31 @@ VideoController::VideoController(rs2::sensor& colorSensor, rs2::sensor& depthSen
 	this->rgb_exposure_value = (int)this->colorSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
 
 	this->setFilterSettings();
+	this->setROIDefault(this->displayWidth, this->displayHeight);
 	this->createCVWindow();
 }
 
 void VideoController::createCVWindow() {
 	cv::namedWindow(this->windowName, WINDOW_AUTOSIZE);
-	this->is_video_destroyed = false;
-	this->is_showing_video = true;
-	//cv::setMouseCallback(this->windowName, depthROICallback, (void*)&this->depthROI);
+	this->is_showing_preview = true;
+	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
+}
+
+void VideoController::pauseCVWindow() {
+	cv::resizeWindow(this->windowName, 25, 25);
+	this->is_showing_preview = false;
+	cv::setMouseCallback(this->windowName, NULL, NULL);
+}
+
+void VideoController::unpauseCVWindow() {
+	cv::resizeWindow(this->windowName, this->displayWidth, this->displayHeight);
+	this->is_showing_preview = true;
+	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
+}
+
+void VideoController::destroyCVWindow() {
+	cv::destroyWindow(this->windowName);
+	this->is_showing_preview = false;
 }
 
 void VideoController::setFilterSettings() {
@@ -100,22 +116,19 @@ void VideoController::handleInput() {
 	bool tab_hit = false;
 
 	if (keypress == this->esc_key) {
-		cv::destroyWindow(this->windowName);
-		this->is_video_destroyed = true;
+		//std::cout << "Pressed esc" << std::endl;
+		if (this->is_showing_preview) {
+			this->pauseCVWindow();
+		}
+		else {
+			this->unpauseCVWindow();
+		}
 		return;
 	}
 
 	if (keypress == this->tab_key) {
+		//std::cout << "Pressed tab" << std::endl;
 		tab_hit = true;
-	}
-
-	if (keypress == this->preview_toggle) {
-		this->is_showing_video = !this->is_showing_video;
-
-		if (!this->is_showing_video) {
-			cv::imshow(this->windowName, this->defaultImage);
-		}
-
 	}
 
 	switch (this->controlling_mode) {
@@ -178,8 +191,7 @@ void VideoController::handleInput() {
 
 void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) {
 
-	if (this->is_showing_video) {
-
+	if (this->is_showing_preview) {
 		depthFrame = this->depth_to_disparity.process(depthFrame);
 		depthFrame = this->spat_filter.process(depthFrame);
 		depthFrame = this->temp_filter.process(depthFrame);
@@ -192,8 +204,8 @@ void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) 
 		cv::Mat color_image;
 		cv::Mat depth_image;
 
-		cv::resize(colorImage, color_image, cv::Size(1080, 720), cv::INTER_LINEAR);
-		cv::resize(depthImage, depth_image, cv::Size(1080, 720), cv::INTER_LINEAR);
+		cv::resize(colorImage, color_image, cv::Size(this->displayWidth, this->displayHeight), cv::INTER_LINEAR);
+		cv::resize(depthImage, depth_image, cv::Size(this->displayWidth, this->displayHeight), cv::INTER_LINEAR);
 
 		if (!color_image.empty() && !depth_image.empty()) {
 
@@ -201,10 +213,7 @@ void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) 
 
 			cv::addWeighted(color_image, 1, depth_image, 0.5, 0.0, blendedImage);
 
-
-			/*if (this->auto_exposure_is_enabled) {
-				this->depthROI.drawROI(blendedImage);
-			}*/
+			this->ROI.drawROI(blendedImage);
 
 			switch (this->controlling_mode) {
 				case controlling_types::automatic:
@@ -239,13 +248,40 @@ void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) 
 
 }
 
-int VideoController::update( rs2::frame& colorFrame,  rs2::frame& depthFrame) {
-	if (this->is_video_destroyed) {
-		return 0;
-	}
-	this->showVideo(colorFrame, depthFrame);
+bool VideoController::update( rs2::frame& colorFrame,  rs2::frame& depthFrame) {
 	this->handleInput();
+	if (this->is_showing_preview) {
+		this->showVideo(colorFrame, depthFrame);
+	}
 
-	return 1;
+	return this->ROI.hasUpdated;
 }
 
+void VideoController::setROIDefault(int width, int height) {
+	int origin_x, origin_y;
+	int roi_width, roi_height;
+
+	roi_width = int(0.5 * width);
+	roi_height = int(0.5 * height);
+
+	this->ROI.width = roi_width;
+	this->ROI.height = roi_height;
+
+	this->ROI.setOriginPoint(int(0.25 * width), int(0.25 * height));
+	this->ROI.setEndPoint(this->ROI.origin.x + roi_width, this->ROI.origin.y + roi_height);
+
+	this->ROI.hasUpdated = true;
+
+}
+
+ROIHolder VideoController::getROI() {
+	return this->ROI;
+}
+
+bool VideoController::getShowingPreview() {
+	return this->is_showing_preview;
+}
+
+void VideoController::setROIUpdated(bool updated) {
+	this->ROI.hasUpdated = updated;
+}
