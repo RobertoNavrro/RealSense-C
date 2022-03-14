@@ -49,11 +49,15 @@ struct ROIHolder {
 	void setOriginPoint(int x, int y) {
 		origin.x = x;
 		origin.y = y;
+		std::cout << "Origin X:" << origin.x << std::endl;
+		std::cout << "Origin Y:" << origin.y << std::endl;
 	}
 
 	void setEndPoint(int x, int y) {
 		end.x = x;
 		end.y = y;
+		std::cout << "End X:" << end.x << std::endl;
+		std::cout << "End Y:" << end.y << std::endl;
 	}
 
 	void print() {

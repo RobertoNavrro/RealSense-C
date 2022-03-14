@@ -5,14 +5,12 @@
 
 void ROICallback(int event, int x, int y, int flags, void* userdata) {
 
-	ROIHolder* ROI = (ROIHolder*)userdata;
+	ROIHolder* ROI = (ROIHolder*) userdata;
 
 	if (event == cv::EVENT_LBUTTONDOWN) {
 		ROI->setOriginPoint(x, y);
 		ROI->dragging = true;
-	}
-
-	else if (event == cv::EVENT_LBUTTONUP) {
+	} else if (event == cv::EVENT_LBUTTONUP) {
 		ROI->calculateDimensions(x, y);
 		ROI->dragging = false;
 		ROI->hasUpdated = true;
@@ -42,7 +40,10 @@ VideoController::VideoController(rs2::sensor& colorSensor, rs2::sensor& depthSen
 
 void VideoController::createCVWindow() {
 	cv::namedWindow(this->windowName, WINDOW_AUTOSIZE);
+	cv::resizeWindow(this->windowName, this->displayWidth, this->displayHeight);
 	this->is_showing_preview = true;
+	this->ROI.print();
+	// At this moment the ROI is as expected
 	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
 }
 
@@ -190,7 +191,6 @@ void VideoController::handleInput() {
 }
 
 void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) {
-
 	if (this->is_showing_preview) {
 		depthFrame = this->depth_to_disparity.process(depthFrame);
 		depthFrame = this->spat_filter.process(depthFrame);
@@ -275,7 +275,6 @@ void VideoController::setROIDefault(int width, int height) {
 	this->ROI.setEndPoint(this->ROI.origin.x + roi_width, this->ROI.origin.y + roi_height);
 
 	this->ROI.hasUpdated = true;
-
 }
 
 void VideoController::setNewDepthROI() {
