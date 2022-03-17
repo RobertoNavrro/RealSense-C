@@ -56,8 +56,6 @@ struct ROIHolder {
 	void setEndPoint(int x, int y) {
 		end.x = x;
 		end.y = y;
-		std::cout << "End X:" << end.x << std::endl;
-		std::cout << "End Y:" << end.y << std::endl;
 	}
 
 	void print() {

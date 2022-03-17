@@ -17,6 +17,7 @@ class VideoRecorder
 		string baseDir;
 		string colorDir;
 		string depthDir;
+		string configDir;
 	
 		rs2::pipeline rsPipeline;
 		rs2::pipeline_profile rsPLProfile;

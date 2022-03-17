@@ -59,7 +59,7 @@ void VideoRecorder::writeExtrinsics() {
 void VideoRecorder::saveExtrinsics(rs2_extrinsics extrinsics, string filename) {
 
 	ofstream extrinsicsFile;
-	extrinsicsFile.open(this->baseDir + filename);
+	extrinsicsFile.open(this->configDir + filename);
 	extrinsicsFile << "{" << endl;
 	extrinsicsFile << "    \"rotation_matrix\": [";
 	for (auto i = 0; i < 3; ++i)
@@ -105,7 +105,7 @@ void VideoRecorder::saveExtrinsics(rs2_extrinsics extrinsics, string filename) {
 
 void VideoRecorder::saveIntrinsics(rs2_intrinsics intrinsics, string filename) {
 	ofstream intrinsicsFile;
-	intrinsicsFile.open(this->baseDir + filename);
+	intrinsicsFile.open(this->configDir + filename);
 	intrinsicsFile << "{" << endl;
 	intrinsicsFile << "    \"coeffs\": [" << intrinsics.coeffs[0] << "," << endl;
 	intrinsicsFile << "               " << intrinsics.coeffs[1] << "," << endl;
@@ -137,7 +137,7 @@ void VideoRecorder::writeIntrinsics() {
 void VideoRecorder::writeDepthDeviceInformation() {
 	rs2::depth_sensor depthSensor = this->rsPLProfile.get_device().first<rs2::depth_sensor>();
 	ofstream depthFile;
-	depthFile.open(this->baseDir + "depth_parameters.json");
+	depthFile.open(this->configDir + "depth_parameters.json");
 	depthFile << "{" << endl;
 	depthFile << " \" depth_scale\":  " << depthSensor.get_depth_scale() << "," << endl;
 	depthFile << "}" << endl;
@@ -254,7 +254,8 @@ void VideoRecorder::createDirectories() {
 	vector<string> directories = { this->parentDir,
 								   this->baseDir,
 								   this->colorDir,
-								   this->depthDir};
+								   this->depthDir,
+								   this->configDir};
 
 	int failure = 0;
 
@@ -289,10 +290,12 @@ void VideoRecorder::setDirectories() {
 	this->baseDir = this->parentDir +  "output_" + string(time_buffer) + "/";
 	this->colorDir = this->baseDir + "color/";
 	this->depthDir = this->baseDir + "depth/";
+	this->configDir = this->baseDir + "config/";
 }
 
 
 void VideoRecorder::verifySetUp() {
+	this->videoController.showDefault();
 	rs2::align alignTo(RS2_STREAM_COLOR);
 
 	rs2::frameset frameSet;

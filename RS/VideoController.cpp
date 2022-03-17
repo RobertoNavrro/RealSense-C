@@ -10,11 +10,12 @@ void ROICallback(int event, int x, int y, int flags, void* userdata) {
 	if (event == cv::EVENT_LBUTTONDOWN) {
 		ROI->setOriginPoint(x, y);
 		ROI->dragging = true;
-	} else if (event == cv::EVENT_LBUTTONUP) {
+	} 
+	
+	else if (event == cv::EVENT_LBUTTONUP) {
 		ROI->calculateDimensions(x, y);
 		ROI->dragging = false;
 		ROI->hasUpdated = true;
-		ROI->print();
 	}
 
 	if (ROI->dragging) {
@@ -40,21 +41,22 @@ VideoController::VideoController(rs2::sensor& colorSensor, rs2::sensor& depthSen
 
 void VideoController::createCVWindow() {
 	cv::namedWindow(this->windowName, WINDOW_AUTOSIZE);
-	cv::resizeWindow(this->windowName, this->displayWidth, this->displayHeight);
 	this->is_showing_preview = true;
-	this->ROI.print();
-	// At this moment the ROI is as expected
+	cv::setMouseCallback(this->windowName, NULL, NULL);
+	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
+	cv::setMouseCallback(this->windowName, NULL, NULL);
+	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
+	cv::setMouseCallback(this->windowName, NULL, NULL);
 	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
 }
 
 void VideoController::pauseCVWindow() {
-	cv::resizeWindow(this->windowName, 25, 25);
 	this->is_showing_preview = false;
+	this->showDefault();
 	cv::setMouseCallback(this->windowName, NULL, NULL);
 }
 
 void VideoController::unpauseCVWindow() {
-	cv::resizeWindow(this->windowName, this->displayWidth, this->displayHeight);
 	this->is_showing_preview = true;
 	cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
 }
@@ -73,43 +75,28 @@ void VideoController::setFilterSettings() {
 	this->color_filter.set_option(RS2_OPTION_MIN_DISTANCE, this->minDepth);
 }
 
+void VideoController::turnOnDepthAutoExposure() {
+	this->depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
+	this->is_depth_auto_exposure_enabled = true;
+}
 
 void VideoController::controlDepthExposure() {
+	//this->depth_exposure_value = (int)this->depthSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
+	this->depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
+	this->depthSensor.set_option(RS2_OPTION_EXPOSURE, this->depth_exposure_value);
+	this->is_depth_auto_exposure_enabled = false;
+}
 
-	if (!this->is_depth_auto_exposure_enabled) {
-
-		depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
-		this->is_depth_auto_exposure_enabled = true;
-
-	}
-	else {
-		this->depth_exposure_value = (int)this->depthSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
-
-		this->depthSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
-
-		this->depthSensor.set_option(RS2_OPTION_EXPOSURE, this->depth_exposure_value);
-
-		this->is_depth_auto_exposure_enabled = false;
-	}
+void VideoController::turnOnColorAutoExposure() {
+	this->colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
+	this->is_rgb_auto_exposure_enabled = true;
 }
 
 void VideoController::controlColorExposure() {
-	if (!this->is_rgb_auto_exposure_enabled) {
-
-		this->colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1.0);
-
-		this->is_rgb_auto_exposure_enabled = true;
-	}
-
-	else {
-		this->rgb_exposure_value = (int)this->colorSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
-
-		this->colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
-
-		this->colorSensor.set_option(RS2_OPTION_EXPOSURE, this->rgb_exposure_value);
-
-		this->is_rgb_auto_exposure_enabled = false;
-	}
+	//this->rgb_exposure_value = (int)this->colorSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
+	this->colorSensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 0.0);
+	this->colorSensor.set_option(RS2_OPTION_EXPOSURE, this->rgb_exposure_value);
+	this->is_rgb_auto_exposure_enabled = false;
 }
 
 void VideoController::handleInput() {
@@ -134,33 +121,53 @@ void VideoController::handleInput() {
 
 	switch (this->controlling_mode) {
 		case controlling_types::automatic:
+
+			if (!this->is_rgb_auto_exposure_enabled) {
+				this->turnOnColorAutoExposure();
+			}
+			
+			if (!this->is_depth_auto_exposure_enabled) {
+				this->turnOnDepthAutoExposure();
+			}
+
+			if (!this->is_depth_auto_exposure_enabled && !this->is_rgb_auto_exposure_enabled) {
+				this->depth_exposure_value = (int)this->depthSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
+				this->rgb_exposure_value = (int)this->colorSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
+			}
+
 			if (tab_hit) {
 				this->controlColorExposure();
 				this->controlDepthExposure();
 				this->controlling_mode = controlling_types::color;
+				cv::setMouseCallback(this->windowName, NULL, NULL);
 			}
-
-			this->depth_exposure_value = (int)this->depthSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
-			this->rgb_exposure_value = (int)this->colorSensor.get_option(rs2_option::RS2_OPTION_EXPOSURE);
 
 			break;
 
 		case controlling_types::color:
 			if (tab_hit) {
-				this->controlColorExposure();
 				this->controlling_mode = controlling_types::depth;
+				cv::setMouseCallback(this->windowName, NULL, NULL);
 			}
 
 			if (keypress == this->increase_exposure){
 				this->rgb_exposure_value += this->rgb_exposure_step_s;
+				
+				if (this->rgb_exposure_value > 330) {
+					this->rgb_exposure_value = 330;
+				}
+				
 				this->colorSensor.set_option(RS2_OPTION_EXPOSURE, this->rgb_exposure_value);
-				cout << "Increasing color exposure" << endl;
 			}
 			
 			if (keypress == this->decrease_exposure){
 				this->rgb_exposure_value -= this->rgb_exposure_step_s;
+
+				if (this->rgb_exposure_value < 1) {
+					this->rgb_exposure_value = 1;
+				}
+
 				this->colorSensor.set_option(RS2_OPTION_EXPOSURE, this->rgb_exposure_value);
-				cout << "Decreasing color exposure" << endl;
 			}
 
 			break;
@@ -168,20 +175,28 @@ void VideoController::handleInput() {
 		case controlling_types::depth:
 
 			if (tab_hit) {
-				this->controlDepthExposure();
 				this->controlling_mode = controlling_types::automatic;
+				cv::setMouseCallback(this->windowName, ROICallback, (void*)&this->ROI);
 			}
 
 			if (keypress == this->increase_exposure){
 				this->depth_exposure_value += this->depth_exposure_step_s;
+
+				if (this->depth_exposure_value > 1701) {
+					this->depth_exposure_value = 1700;
+				}
+
 				this->depthSensor.set_option(RS2_OPTION_EXPOSURE, this->depth_exposure_value);
-				cout << "Increasing depth exposure" << endl;
 			}
 
 			if (keypress == this->decrease_exposure) {
 				this->depth_exposure_value -= this->depth_exposure_step_s;
+
+				if (this->depth_exposure_value < 1) {
+					this->depth_exposure_value = 1;
+				}
+
 				this->depthSensor.set_option(RS2_OPTION_EXPOSURE, this->depth_exposure_value);
-				cout << "Decreasing depth exposure" << endl;
 			}
 
 			break;
@@ -190,7 +205,12 @@ void VideoController::handleInput() {
 	return;
 }
 
-void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) {
+void VideoController::showDefault() {
+	cv::putText(this->defaultImage, "Preview is currently OFF", cv::Point(int(this->displayWidth / 2), int(this->displayHeight / 2)), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255));
+	cv::imshow(this->windowName, this->defaultImage);
+}
+
+void VideoController::showVideo(rs2::frame colorFrame, rs2::frame depthFrame) {
 	if (this->is_showing_preview) {
 		depthFrame = this->depth_to_disparity.process(depthFrame);
 		depthFrame = this->spat_filter.process(depthFrame);
@@ -248,9 +268,26 @@ void VideoController::showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame) 
 
 }
 
-void VideoController::update(rs2::frame& colorFrame, rs2::frame& depthFrame) {
+rs2_metadata_type VideoController::getFrameMetaData(rs2::frame& f, const rs2_frame_metadata_value& option)
+{
+	try {
+		if (f.supports_frame_metadata(option))
+			return f.get_frame_metadata(option);
+	}
+	catch (rs2::error&) {
+	}
+	return this->rgb_exposure_value;
+}
+
+void VideoController::update(rs2::frame colorFrame, rs2::frame depthFrame) {
 	this->handleInput();
 	if (this->is_showing_preview) {
+
+		if (this->controlling_mode == controlling_types::automatic) {
+			this->rgb_exposure_value = getFrameMetaData(colorFrame, RS2_FRAME_METADATA_ACTUAL_EXPOSURE);
+			this->depth_exposure_value = getFrameMetaData(depthFrame, RS2_FRAME_METADATA_ACTUAL_EXPOSURE);
+		}
+
 		this->showVideo(colorFrame, depthFrame);
 	}
 
@@ -259,6 +296,7 @@ void VideoController::update(rs2::frame& colorFrame, rs2::frame& depthFrame) {
 		this->setNewRgbROI();
 		this->ROI.hasUpdated = false;
 	}
+
 }
 
 void VideoController::setROIDefault(int width, int height) {
@@ -274,7 +312,7 @@ void VideoController::setROIDefault(int width, int height) {
 	this->ROI.setOriginPoint(int(0.25 * width), int(0.25 * height));
 	this->ROI.setEndPoint(this->ROI.origin.x + roi_width, this->ROI.origin.y + roi_height);
 
-	this->ROI.hasUpdated = true;
+	this->ROI.hasUpdated = false;
 }
 
 void VideoController::setNewDepthROI() {
@@ -293,12 +331,6 @@ void VideoController::setNewDepthROI() {
 	if (roi.max_y - roi.min_y >= 24 && roi.max_x - roi.min_x >= 48) {
 		roi_sensor.set_region_of_interest(roi);
 	}
-
-	std::cout << "RoI depth:" << std::endl;
-	std::cout << "Min_x:" << roi.min_x << std::endl;
-	std::cout << "Min_y:" << roi.min_y << std::endl;
-	std::cout << "Max_x:" << roi.max_x << std::endl;
-	std::cout << "Max_y:" << roi.max_y << std::endl;
 }
 
 void VideoController::setNewRgbROI() {
@@ -317,12 +349,6 @@ void VideoController::setNewRgbROI() {
 	if (roi.max_y - roi.min_y >= 24 && roi.max_x - roi.min_x >= 48) {
 		roi_sensor.set_region_of_interest(roi);
 	}
-
-	std::cout << "RoI RGB:" << std::endl;
-	std::cout << "Min_x:" << roi.min_x << std::endl;
-	std::cout << "Min_y:" << roi.min_y << std::endl;
-	std::cout << "Max_x:" << roi.max_x << std::endl;
-	std::cout << "Max_y:" << roi.max_y << std::endl;
 }
 
 
@@ -335,6 +361,3 @@ bool VideoController::getShowingPreview() {
 	return this->is_showing_preview;
 }
 
-void VideoController::setROIUpdated(bool updated) {
-	this->ROI.hasUpdated = updated;
-}

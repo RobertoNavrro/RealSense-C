@@ -20,7 +20,7 @@ class VideoController
 
 private:
 	rs2::sensor colorSensor;
-	rs2::sensor depthSensor; //MAYBE THIS IS NOT THE THING
+	rs2::sensor depthSensor; 
 
 	// Control Keys for sensor controllers
 	char esc_key = (char)27;
@@ -28,18 +28,16 @@ private:
 	char increase_exposure = (char)61; //+ key, for exposure
 	char decrease_exposure = (char)45; //- key for exposure
 	char tab_key = (char)9; // Change between manual and automatic mode.
-	char control_depth_key = (char)100;
-	char control_rgb_key = (char)99;
 
 	bool is_depth_auto_exposure_enabled = true;
 	bool is_rgb_auto_exposure_enabled = true;
 	bool is_showing_preview = true;
 
-	int rgb_exposure_value;
-	int depth_exposure_value;
+	long long int rgb_exposure_value;
+	long long int depth_exposure_value;
 
-	int rgb_exposure_step_s = 30;
-	int depth_exposure_step_s = 500;
+	int rgb_exposure_step_s = 10;
+	int depth_exposure_step_s = 100;
 
 	float minDepth = 0.19f;
 	float maxDepth = 7.0f;
@@ -71,13 +69,17 @@ public:
 	void handleInput();
 	void setFilterSettings();
 	void controlDepthExposure();
+	void turnOnDepthAutoExposure();
 	void controlColorExposure();
+	void turnOnColorAutoExposure();
 	void createCVWindow();
 	void pauseCVWindow();
 	void unpauseCVWindow();
 	void destroyCVWindow();
-    void update(rs2::frame& colorFrame, rs2::frame& depthFrame);
-	void showVideo(rs2::frame& colorFrame, rs2::frame& depthFrame);
+	void showDefault();
+    void update(rs2::frame colorFrame, rs2::frame depthFrame);
+	void showVideo(rs2::frame colorFrame, rs2::frame depthFrame);
+	rs2_metadata_type getFrameMetaData(rs2::frame& f, const rs2_frame_metadata_value& option);
 	ROIHolder getROI();
 	bool getShowingPreview();
 	void setROIUpdated(bool updated);
